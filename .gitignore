@@ -1,0 +1,14 @@
+# Local secrets: only the documented example is committed
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Tooling
+node_modules/
+.wrangler/
+coverage/
+mise.local.toml
+.DS_Store
