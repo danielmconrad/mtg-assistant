@@ -23,7 +23,8 @@ pipx.uvx = true
 [env]
 _.file = { path = ".env", redact = true }
 # wrangler would otherwise load .env (admin tokens included) into the local Worker as secrets. Local
-# Worker secrets go in .dev.vars instead (see .dev.vars.example), and process env never becomes bindings.
+# Worker secrets go in .env.worker instead (see .env.worker.example), loaded only by the dev task, and
+# process env never becomes bindings.
 CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false"
 CLOUDFLARE_INCLUDE_PROCESS_ENV = "false"
 WRANGLER_SEND_METRICS = "false"
@@ -33,8 +34,14 @@ description = "Install locked dependencies (network) and the git pre-commit hook
 run = ["npm ci --ignore-scripts", "mise generate git-pre-commit --write --task pre-commit"]
 
 [tasks.dev]
-description = "Run the Worker locally with local D1, KV and R2 at http://localhost:8787"
-run = "wrangler dev"
+description = "Run the Worker locally at http://localhost:8787, with secrets from .env.worker"
+# Loading is switched back on for this task only, and --env-file limits it to .env.worker (never .env).
+# --local-upstream makes the Worker see localhost rather than the production custom domain.
+env = { CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "true" }
+run = [
+  "test -f .env.worker || { echo 'Create .env.worker first: cp .env.worker.example .env.worker' >&2; exit 1; }",
+  "wrangler dev --env-file .env.worker --port 8787 --local-upstream localhost:8787",
+]
 
 [tasks.test]
 description = "Run the offline tests inside workerd (vitest-pool-workers)"

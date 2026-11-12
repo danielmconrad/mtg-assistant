@@ -2,9 +2,9 @@
 .env
 .env.*
 !.env.example
-.dev.vars
-.dev.vars.*
-!.dev.vars.example
+!.env.worker.example
+# wrangler's default name for local secrets; this repo uses .env.worker, but keep strays out of Git.
+.dev.vars*
 
 # Tooling
 node_modules/

@@ -5,7 +5,7 @@ outrank convenience.
 
 ## Secrets and accounts
 
-- Never read `.env` or `.dev.vars` aloud, print their values, or paste them anywhere. Ask the user to fill them in
+- Never read `.env` or `.env.worker` aloud, print their values, or paste them anywhere. Ask the user to fill them in
   themselves rather than accepting tokens in chat.
 - `mise run setup:accounts` without `--apply` only reads. Run `--apply` only when the user asks, after they've
   seen the plan it prints.
@@ -18,7 +18,7 @@ outrank convenience.
 - Every new route goes in both `src/routes.mjs` (with its methods and rate limiter) and `PUBLIC_PATHS` in
   `scripts/setup-accounts.mjs`. A test fails if the two drift.
 - Every new rate limiter needs a binding in `wrangler.jsonc`. Every new secret goes in `.env.example` or
-  `.dev.vars.example` with instructions for producing it, and never in `vars`.
+  `.env.worker.example` with instructions for producing it, and never in `vars`.
 - User identity comes only from the verified token (`ctx.props`), never from tool arguments. Every query on user
   data filters by that user, and every new tool gets a test that a second user can't see the first user's data.
 - Escape everything from a request or an OAuth client before putting it in HTML (`escapeHtml` in

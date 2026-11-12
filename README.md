@@ -51,7 +51,7 @@ Then:
 ## Local development
 
 ```sh
-cp .dev.vars.example .dev.vars    # local Worker secrets; see the comments inside
+cp .env.worker.example .env.worker   # local Worker secrets; see the comments inside
 mise run db:migrate:local
 mise run dev                      # http://localhost:8787
 mise run inspector                # MCP Inspector, to call the tools

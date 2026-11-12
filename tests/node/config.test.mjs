@@ -62,6 +62,14 @@ describe('mise.toml', () => {
     expect(mise).toMatch(/^CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false"$/m);
     expect(mise).toMatch(/^CLOUDFLARE_INCLUDE_PROCESS_ENV = "false"$/m);
   });
+
+  it('lets only the dev task load secrets, and only from .env.worker', async () => {
+    const mise = await readFile('mise.toml', 'utf8');
+    expect(mise.match(/CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "true"/g)).toHaveLength(1);
+    const devTask = mise.slice(mise.indexOf('[tasks.dev]'), mise.indexOf('[tasks.test]'));
+    expect(devTask).toContain('CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "true"');
+    expect(devTask).toContain('--env-file .env.worker ');
+  });
 });
 
 describe('migrations', () => {
