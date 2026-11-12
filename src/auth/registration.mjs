@@ -1,5 +1,8 @@
 // Policy for dynamic client registration (/register). Anyone on the internet can reach it, so it only
-// stores clients whose every redirect URI is allowlisted, and only up to a fixed number of clients.
+// stores clients whose every redirect URI is allowlisted. A registered client grants nothing by itself:
+// using it still takes Cloudflare Access and Google sign-in. So there is no hard cap, which anyone could
+// fill to lock claude.ai out; unusually many clients are flagged in the audit log instead, the per-IP
+// rate limit slows floods, and unused clients expire (clientRegistrationTTL in src/index.mjs).
 import { isAllowedRedirectUri } from '../config.mjs';
 import { logAuthEvent } from './users.mjs';
 
@@ -28,9 +31,9 @@ export function registrationPolicy(env, config) {
       });
       return { code: 'invalid_redirect_uri', description: 'redirect_uri is not allowed', status: 400 };
     }
-    if ((await countClients(env.OAUTH_KV, config.maxClients)) >= config.maxClients) {
-      await logAuthEvent(env.DB, request, 'registration_refused', { detail: { reason: 'client_cap' } });
-      return { code: 'access_denied', description: 'registration is closed', status: 403 };
+    const existing = await countClients(env.OAUTH_KV, config.clientAlertThreshold);
+    if (existing >= config.clientAlertThreshold) {
+      await logAuthEvent(env.DB, request, 'client_count_high', { detail: { atLeast: existing } });
     }
     await logAuthEvent(env.DB, request, 'client_registered', {
       detail: { clientName: String(clientMetadata.client_name ?? '').slice(0, 100), redirectUris },

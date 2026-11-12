@@ -21,7 +21,9 @@ export function readConfig(env) {
     allowedEmails: new Set(splitList(env.ALLOWED_EMAILS)),
     // Hosts an OAuth client may send tokens to, besides loopback (Claude Code on this machine).
     allowedRedirectHosts: new Set(splitList(env.ALLOWED_REDIRECT_HOSTS)),
-    maxClients: Number(env.MAX_OAUTH_CLIENTS ?? 20),
+    // Registrations past this many clients are flagged in the audit log (never refused: a hard cap would
+    // let anyone fill it and lock claude.ai out).
+    clientAlertThreshold: Number(env.OAUTH_CLIENT_ALERT_THRESHOLD ?? 20),
     accessTeamDomain: String(env.ACCESS_TEAM_DOMAIN ?? '').trim(),
     accessAud: String(env.ACCESS_AUD ?? '').trim(),
     // Local `wrangler dev` has no Cloudflare Access in front of it. This stand-in identity is honored

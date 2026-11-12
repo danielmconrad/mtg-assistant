@@ -81,3 +81,12 @@ describe('migrations', () => {
     }
   });
 });
+
+describe('ci.yml deploy job', () => {
+  it('rolls back only when the deploy itself succeeded', async () => {
+    const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
+    const rollback = workflow.slice(workflow.indexOf('wrangler rollback') - 400, workflow.indexOf('wrangler rollback'));
+    expect(rollback).toContain("if: failure() && steps.deploy.outcome == 'success'");
+    expect(workflow).toMatch(/needs: \[lint, test, scan\]/);
+  });
+});

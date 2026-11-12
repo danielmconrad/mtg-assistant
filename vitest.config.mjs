@@ -12,7 +12,7 @@ export const TEST_BINDINGS = {
   GOOGLE_CLIENT_SECRET: 'test-google-secret',
   ACCESS_TEAM_DOMAIN: 'team.example.com',
   ACCESS_AUD: 'test-access-aud',
-  MAX_OAUTH_CLIENTS: '5',
+  OAUTH_CLIENT_ALERT_THRESHOLD: '5',
 };
 
 export default defineConfig(async () => {

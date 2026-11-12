@@ -12,6 +12,9 @@ import { matchRoute } from './routes.mjs';
 
 const ACCESS_TOKEN_TTL = 60 * 60;
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60;
+// Unused registered clients expire; one in use is renewed by the library. Longer than a grant lasts, so a
+// working connection never loses its client.
+const CLIENT_REGISTRATION_TTL = 60 * 24 * 60 * 60;
 export const SCOPES = ['mcp'];
 
 async function overLimit(env, binding, key) {
@@ -66,6 +69,7 @@ function buildProvider(env, config, auditLogs) {
     clientRegistrationEndpoint: '/register',
     accessTokenTTL: ACCESS_TOKEN_TTL,
     refreshTokenTTL: REFRESH_TOKEN_TTL,
+    clientRegistrationTTL: CLIENT_REGISTRATION_TTL,
     scopesSupported: SCOPES,
     requiredScopes: SCOPES,
     resourceMetadata: {

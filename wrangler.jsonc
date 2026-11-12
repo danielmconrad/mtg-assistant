@@ -21,7 +21,7 @@
     // Hosts an OAuth client may send tokens to, besides loopback for Claude Code. claude.ai's
     // connector callback lives on these; refusals are logged as redirect_refused / registration_refused.
     "ALLOWED_REDIRECT_HOSTS": "claude.ai,claude.com",
-    "MAX_OAUTH_CLIENTS": "20",
+    "OAUTH_CLIENT_ALERT_THRESHOLD": "20",
     "ACCESS_TEAM_DOMAIN": "", // SETUP: <team>.cloudflareaccess.com
     "ACCESS_AUD": "", // SETUP: the Access application's audience tag
   },

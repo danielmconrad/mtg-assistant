@@ -84,9 +84,10 @@ jobs:
       - id: deploy
         run: wrangler deploy
       - run: node scripts/post-deploy-check.mjs
-      # Any failure after the deploy: go back to the previous version. With no previous version
-      # (the first deploy), lock the Worker down instead of leaving it running unverified.
-      - if: failure() && steps.deploy.outcome != 'skipped'
+      # The new version is live but failed its checks: go back to the previous version. With no previous
+      # version (the first deploy), lock the Worker down instead of leaving it running unverified. If the
+      # deploy itself failed, the old version is still live and untouched, so nothing is rolled back.
+      - if: failure() && steps.deploy.outcome == 'success'
         run: |
           wrangler rollback --yes --message "post-deploy check failed in run ${GITHUB_RUN_ID}" \
             || echo 1 | wrangler secret put LOCKDOWN

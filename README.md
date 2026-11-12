@@ -98,8 +98,10 @@ A weekly workflow reruns the scans, and Dependabot proposes grouped updates afte
   - Sets security headers on every response, with a strict CSP on its HTML.
   - Has a `LOCKDOWN` switch.
 - **OAuth:**
-  - Clients can only register if every redirect URI is claude.ai, claude.com or loopback, and there's a cap on
-    how many clients exist.
+  - Clients can only register if every redirect URI is claude.ai, claude.com or loopback. Registering grants
+    nothing on its own (using a client still takes Access and Google), so there's no hard cap that someone
+    could fill to lock claude.ai out. Instead, registration is rate limited per IP, unusually many clients are
+    flagged in the audit log, and unused clients expire after 60 days.
   - PKCE S256 is required, and authorization codes are single-use.
   - Access tokens last one hour.
   - Refresh tokens rotate. The previous one keeps working only until its replacement is first used, and the

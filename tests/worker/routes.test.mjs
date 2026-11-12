@@ -44,6 +44,34 @@ describe('route allowlist', () => {
   });
 });
 
+describe('CORS preflights', () => {
+  it('answers preflights for the routes browser-based clients call', async () => {
+    for (const [path, method] of [
+      ['/register', 'POST'],
+      ['/token', 'POST'],
+      ['/mcp', 'POST'],
+      ['/.well-known/oauth-authorization-server', 'GET'],
+      ['/.well-known/oauth-protected-resource/mcp', 'GET'],
+    ]) {
+      const response = await call(path, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: 'http://localhost:6274',
+          'Access-Control-Request-Method': method,
+          'Access-Control-Request-Headers': 'content-type, authorization, mcp-protocol-version',
+        },
+      });
+      expect(response.status, path).toBeLessThan(300);
+      expect(response.headers.get('Access-Control-Allow-Origin'), path).toBeTruthy();
+    }
+  });
+
+  it('still refuses OPTIONS on the browser-only routes', async () => {
+    expect((await call('/authorize', { method: 'OPTIONS' })).status).toBe(405);
+    expect((await call('/callback', { method: 'OPTIONS' })).status).toBe(405);
+  });
+});
+
 describe('security headers', () => {
   it('sets HSTS, nosniff, no-referrer and no-store on every response', async () => {
     for (const path of ['/nope', '/.well-known/oauth-authorization-server']) {
@@ -118,10 +146,19 @@ describe('client registration', () => {
     ]);
   });
 
-  it('closes registration at MAX_OAUTH_CLIENTS', async () => {
+  it('keeps registration open past the alert threshold, flagging it instead of refusing', async () => {
     const statuses = [];
     for (let index = 0; index < 7; index += 1) statuses.push((await registerClient()).status);
-    expect(statuses.slice(0, 5)).toEqual([201, 201, 201, 201, 201]);
-    expect(statuses.slice(5)).toEqual([403, 403]);
+    expect(statuses).toEqual([201, 201, 201, 201, 201, 201, 201]);
+    // OAUTH_CLIENT_ALERT_THRESHOLD is 5 in tests: the 6th and 7th registrations are flagged.
+    expect(await events('client_count_high')).toHaveLength(2);
+  });
+
+  it('gives registered clients a finite lifetime', async () => {
+    const { client_id: clientId } = await (await registerClient()).json();
+    const { keys } = await env.OAUTH_KV.list({ prefix: `client:${clientId}` });
+    const lifetime = keys[0].expiration - Date.now() / 1000;
+    expect(lifetime).toBeGreaterThan(60 * 24 * 60 * 60 - 120);
+    expect(lifetime).toBeLessThanOrEqual(60 * 24 * 60 * 60);
   });
 });
