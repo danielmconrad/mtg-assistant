@@ -1,0 +1,24 @@
+# Grouped weekly update PRs. They go through the same CI gates, and nothing merges automatically.
+# A 7-day cooldown skips versions too new to have been vetted (security updates aren't delayed).
+# Tools pinned in mise.toml aren't covered by Dependabot; bump them by hand with `mise latest`.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+    cooldown:
+      default-days: 7

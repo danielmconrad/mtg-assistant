@@ -1,0 +1,93 @@
+# Every gate runs on every pull request and every push to main. Production deploys happen only here,
+# only from main, and only after lint, tests and scans pass.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - run: npm ci --ignore-scripts
+      - run: mise run lint
+        env:
+          GH_TOKEN: ${{ github.token }} # read-only; lets zizmor check actions against advisories
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - run: npm ci --ignore-scripts
+      # Unit, integration and pre-deploy security tests in workerd, with the coverage floor enforced.
+      - run: npx vitest run --coverage
+
+  scan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # gitleaks scans the full history
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - run: npm ci --ignore-scripts
+      - run: mise run scan
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+
+  deploy:
+    needs: [lint, test, scan]
+    # setup:accounts sets DEPLOY_ENABLED once the Cloudflare resources exist.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEPLOY_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - run: npm ci --ignore-scripts
+      # Migrations are additive only (tests/node/config.test.mjs), so they run before the new code.
+      - run: wrangler d1 migrations apply mtg-assistant --remote
+      - id: deploy
+        run: wrangler deploy
+      - run: node scripts/post-deploy-check.mjs
+      # The new version is live but failed its checks: go back to the previous version. With no previous
+      # version (the first deploy), lock the Worker down instead of leaving it running unverified. If the
+      # deploy itself failed, the old version is still live and untouched, so nothing is rolled back.
+      - if: failure() && steps.deploy.outcome == 'success'
+        run: |
+          wrangler rollback --yes --message "post-deploy check failed in run ${GITHUB_RUN_ID}" \
+            || echo 1 | wrangler secret put LOCKDOWN

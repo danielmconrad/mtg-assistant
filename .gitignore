@@ -1,0 +1,14 @@
+# Local secrets: only the documented example is committed
+.env
+.env.*
+!.env.example
+!.env.worker.example
+# wrangler's default name for local secrets; this repo uses .env.worker, but keep strays out of Git.
+.dev.vars*
+
+# Tooling
+node_modules/
+.wrangler/
+coverage/
+mise.local.toml
+.DS_Store

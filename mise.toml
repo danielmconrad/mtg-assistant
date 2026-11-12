@@ -1,0 +1,121 @@
+# Every tool this project needs, pinned. Nothing is installed globally: `mise install` fetches these
+# versions, and CI uses the same file through jdx/mise-action.
+[tools]
+node = "24.22.3"
+gh = "2.103.3"
+"npm:wrangler" = "4.161.0"
+# Security scanners, run by `mise run scan` and in CI.
+gitleaks = "8.30.1"
+osv-scanner = "2.7.1"
+actionlint = "1.7.12"
+"npm:lockfile-lint" = "5.1.0"
+# uv lets mise install the Python-based scanners without a global Python.
+uv = "0.13.7"
+"pipx:zizmor" = "1.32.0"
+"pipx:semgrep" = "1.185.0"
+
+[settings]
+# Python tools install through uv rather than a system pipx.
+pipx.uvx = true
+
+# .env holds credentials (see .env.example). It's loaded into every task so gh and wrangler need no
+# interactive login. CI has no .env and passes credentials as environment variables instead.
+[env]
+_.file = { path = ".env", redact = true }
+# wrangler would otherwise load .env (admin tokens included) into the local Worker as secrets. Local
+# Worker secrets go in .env.worker instead (see .env.worker.example), loaded only by the dev task, and
+# process env never becomes bindings.
+CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "false"
+CLOUDFLARE_INCLUDE_PROCESS_ENV = "false"
+WRANGLER_SEND_METRICS = "false"
+
+[tasks.setup]
+description = "Install locked dependencies (network) and the git pre-commit hook"
+run = ["npm ci --ignore-scripts", "mise generate git-pre-commit --write --task pre-commit"]
+
+[tasks.dev]
+description = "Run the Worker locally at http://localhost:8787, with secrets from .env.worker"
+# Loading is switched back on for this task only, and --env-file limits it to .env.worker (never .env).
+# --local-upstream makes the Worker see localhost rather than the production custom domain.
+env = { CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = "true" }
+run = [
+  "test -f .env.worker || { echo 'Create .env.worker first: cp .env.worker.example .env.worker' >&2; exit 1; }",
+  "wrangler dev --env-file .env.worker --port 8787 --local-upstream localhost:8787",
+]
+
+[tasks.test]
+description = "Run the offline tests inside workerd (vitest-pool-workers)"
+run = "npx vitest run"
+
+[tasks."test:watch"]
+description = "Run the tests in watch mode"
+run = "npx vitest"
+
+[tasks.lint]
+description = "ESLint, Prettier, and the workflow linters (actionlint, zizmor)"
+run = [
+  "npx eslint .",
+  "npx prettier --check .",
+  "actionlint",
+  # Online audits (such as known-vulnerable actions) need a GitHub token; without one, run offline.
+  'if [ -n "${GH_TOKEN:-}" ]; then zizmor --min-severity medium .github/workflows; else env -u GH_TOKEN zizmor --offline --min-severity medium .github/workflows; fi',
+]
+
+[tasks.fix]
+description = "Apply ESLint fixes, then format everything with Prettier"
+run = ["npx eslint --fix .", "npx prettier --write --log-level warn ."]
+
+[tasks.scan]
+description = "Dependency, supply-chain, static-analysis and secret scans (the CI security gate)"
+run = [
+  "npm audit --omit=dev --audit-level=high",
+  "npm audit signatures",
+  "osv-scanner scan source --lockfile package-lock.json --config osv-scanner.toml",
+  "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity",
+  "semgrep scan --error --metrics off --config p/javascript --config p/nodejs --config p/secrets --config p/owasp-top-ten --config p/github-actions",
+  "gitleaks git --redact --no-banner",
+]
+
+[tasks.ci]
+description = "Every pre-deploy gate, as CI runs them: lint, tests, scans"
+depends = ["lint", "test", "scan"]
+
+[tasks."db:migrate:local"]
+description = "Apply D1 migrations to the local dev database"
+run = "wrangler d1 migrations apply mtg-assistant --local"
+
+[tasks."setup:accounts"]
+description = "Create or update Cloudflare and GitHub resources from .env (shows a plan, asks before changing anything)"
+run = "node scripts/setup-accounts.mjs"
+
+[tasks.inspector]
+description = "Open MCP Inspector to try the server's tools (start `mise run dev` first)"
+run = "npx --yes @modelcontextprotocol/inspector"
+
+# Installed into .git/hooks by `setup`. The hook passes staged paths in $STAGED.
+[tasks.pre-commit]
+description = "Git hook: block staged secrets, then fix and re-stage staged files"
+hide = true
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+gitleaks git --staged --redact --no-banner
+files=()
+for file in $STAGED; do
+  [ -f "$file" ] && files+=("$file")
+done
+[ -z "${files[*]:-}" ] && exit 0
+partial=$(git diff --name-only -- "${files[@]}")
+if [ -n "$partial" ]; then
+  echo "These files have unstaged changes; stage or stash them, or run 'mise run fix' and commit again:"
+  echo "$partial"
+  exit 1
+fi
+scripts=()
+for file in "${files[@]}"; do
+  [[ "$file" =~ \.m?js$ ]] && scripts+=("$file")
+done
+[ -n "${scripts[*]:-}" ] && npx eslint --fix "${scripts[@]}"
+npx prettier --write --ignore-unknown --log-level warn "${files[@]}"
+git add -- "${files[@]}"
+'''
