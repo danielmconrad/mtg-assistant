@@ -63,6 +63,11 @@ describe('post-deploy checks', () => {
   it.each([
     ['an open root path', { 'GET /': () => new Response('hello') }, 'unknown paths'],
     ['missing Access', { 'GET /authorize': () => new Response('consent') }, 'Access'],
+    [
+      'a WAF that blocks Access sign-ins',
+      { 'GET /cdn-cgi/access/authorized': () => new Response('Sorry, you have been blocked', { status: 403 }) },
+      'finish a sign-in',
+    ],
     ['an unauthenticated /mcp', { 'POST /mcp': () => new Response('{}') }, '/mcp'],
     ['no rate limiting', { 'POST /register': () => new Response(null, { status: 400 }) }, 'rate limited'],
     [

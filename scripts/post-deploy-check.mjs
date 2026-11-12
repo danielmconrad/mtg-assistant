@@ -100,6 +100,15 @@ export function buildChecks(origin, fetchImpl = fetch) {
       },
     ],
     [
+      'the WAF lets Cloudflare Access finish a sign-in',
+      async () => {
+        // Access completes a sign-in at /cdn-cgi/access/authorized on our host; the WAF must not block it.
+        const response = await get('/cdn-cgi/access/authorized');
+        const body = await response.text();
+        return /you have been blocked/i.test(body) ? 'the WAF blocks /cdn-cgi/access/authorized' : null;
+      },
+    ],
+    [
       '/register is rate limited',
       async () => {
         for (let attempt = 0; attempt < 10; attempt += 1) {
