@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { parse } from 'jsonc-parser';
 import { describe, expect, it } from 'vitest';
 import {
+  ACCESS_EDGE_PREFIX,
   ACCESS_PATHS,
   PUBLIC_PATHS,
   blockUnknownPathsRule,
@@ -30,8 +31,16 @@ describe('the WAF path allowlist', () => {
     const rule = blockUnknownPathsRule(HOST);
     expect(rule.action).toBe('block');
     expect(rule.expression).toBe(
-      `(http.host eq "${HOST}" and not (http.request.uri.path in {${PUBLIC_PATHS.map((path) => `"${path}"`).join(' ')}}))`,
+      `(http.host eq "${HOST}"` +
+        ` and not (http.request.uri.path in {${PUBLIC_PATHS.map((path) => `"${path}"`).join(' ')}})` +
+        ' and not starts_with(http.request.uri.path, "/cdn-cgi/access/"))',
     );
+  });
+
+  it('lets Cloudflare Access finish a sign-in, and nothing else under /cdn-cgi/', () => {
+    // Access redirects the browser to /cdn-cgi/access/authorized on our host to set its cookie.
+    expect(ACCESS_EDGE_PREFIX).toBe('/cdn-cgi/access/');
+    expect(blockUnknownPathsRule(HOST).expression).not.toMatch(/"\/cdn-cgi\/"/);
   });
 
   it('escapes quotes in the host', () => {

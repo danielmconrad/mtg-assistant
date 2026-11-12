@@ -31,6 +31,10 @@ export const PUBLIC_PATHS = [
   '/callback',
   '/mcp',
 ];
+// Cloudflare Access serves its own endpoints on our hostname (the redirect that completes a sign-in is
+// /cdn-cgi/access/authorized). They're answered at the edge and never reach the Worker, but the WAF runs
+// first, so they must be let through. Nothing else under /cdn-cgi/ is.
+export const ACCESS_EDGE_PREFIX = '/cdn-cgi/access/';
 // Paths only a person in a browser opens; Cloudflare Access guards them.
 export const ACCESS_PATHS = ['/authorize', '/callback'];
 const CHECK_CONTEXTS = ['lint', 'test', 'scan'];
@@ -68,7 +72,10 @@ export function blockUnknownPathsRule(host) {
   return {
     ref: `${RULE_PREFIX}block-unknown-paths`,
     description: 'mtg-assistant: block every path the Worker does not serve',
-    expression: `(http.host eq ${quote(host)} and not (http.request.uri.path in {${PUBLIC_PATHS.map(quote).join(' ')}}))`,
+    expression:
+      `(http.host eq ${quote(host)}` +
+      ` and not (http.request.uri.path in {${PUBLIC_PATHS.map(quote).join(' ')}})` +
+      ` and not starts_with(http.request.uri.path, ${quote(ACCESS_EDGE_PREFIX)}))`,
     action: 'block',
     enabled: true,
   };
