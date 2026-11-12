@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Collection-first Magic deck",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "format", "status", "allow_proxies", "primer", "commanders", "mainboard"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "name": { "$ref": "#/definitions/text" },
+    "format": { "enum": ["commander", "custom-dollar-brawl", "casual-60"] },
+    "status": { "enum": ["example", "draft", "built", "archived"] },
+    "allow_proxies": { "type": "boolean" },
+    "unlimited_basics": { "type": "boolean" },
+    "target_bracket": {
+      "description": "The Commander Bracket the deck is built for, agreed with the playgroup; deck:check fails cards that need a higher one. Set at creation or when the user asks.",
+      "enum": [1, 2, 3, 4, 5]
+    },
+    "plays_like_bracket": {
+      "description": "How the deck actually plays, judged from the whole list (speed, tutors, fast mana, combos, interaction) by whoever reviews it, with the reasons in power_notes. deck:files removes it when the card list changes, so it's judged again.",
+      "enum": [1, 2, 3, 4, 5]
+    },
+    "lowest_legal_bracket": {
+      "description": "The lowest bracket the deck's cards allow, from Game Changers, extra turns and mass land denial; combos and intent aren't detected. Written by deck:files and deck:swap; don't edit it by hand.",
+      "enum": [1, 2, 3, 4, 5]
+    },
+    "primer": { "$ref": "#/definitions/text" },
+    "power_notes": { "type": "string" },
+    "notes": { "type": "string" },
+    "budget": { "$ref": "#/definitions/money" },
+    "max_card_price": {
+      "description": "Most any one card may cost, judged by its cheapest cached printing. Basic lands are exempt. Defaults to 1 USD in custom-dollar-brawl.",
+      "$ref": "#/definitions/money"
+    },
+    "collection_source": {
+      "description": "Path globs of the collections this deck is built from, e.g. collections/brad/*. Overrides MTG_COLLECTIONS; --collections overrides it.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/text" }
+    },
+    "collection_destination": {
+      "description": "The text list under collections/ holding this deck's physical cards, written by deck:build --apply. Always read for this deck and never protected from it.",
+      "type": "string",
+      "pattern": "^collections/(?!(?:.*/)?\\.\\.?(?:/|$))(?:[^/\\\\]+/)*[^/\\\\]+\\.txt$"
+    },
+    "commanders": { "type": "array", "maxItems": 2, "items": { "$ref": "#/definitions/card" } },
+    "mainboard": { "type": "array", "items": { "$ref": "#/definitions/card" } },
+    "role_targets": {
+      "description": "How many mainboard cards of each role the deck aims for, e.g. ramp: { min: 10, max: 12 }; deck:stats compares the counts. Commander decks without it use the Command Zone template.",
+      "type": "object",
+      "propertyNames": { "enum": ["land", "ramp", "draw", "removal", "wipe", "protection", "wincon", "synergy"] },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["min"],
+        "properties": {
+          "min": { "type": "integer", "minimum": 0 },
+          "max": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "considered": {
+      "description": "Owned cards weighed for the deck and left out, each with why; deck:candidates shows the reasons.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "reason"],
+        "properties": {
+          "name": { "$ref": "#/definitions/text" },
+          "reason": { "$ref": "#/definitions/text" }
+        }
+      }
+    },
+    "upgrades": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["add", "cut", "reason"],
+        "properties": {
+          "add": { "$ref": "#/definitions/card" },
+          "cut": { "$ref": "#/definitions/card" },
+          "reason": { "$ref": "#/definitions/text" }
+        }
+      }
+    },
+    "history": {
+      "description": "Changes to the list outside playtests, such as reviews and swaps, oldest first; deck:swap adds an entry.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["date", "changes"],
+        "properties": {
+          "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "changes": { "$ref": "#/definitions/text" },
+          "notes": { "$ref": "#/definitions/text" }
+        }
+      }
+    },
+    "playtests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["date", "notes"],
+        "properties": {
+          "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "notes": { "$ref": "#/definitions/text" },
+          "changes": { "type": "string" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "format": { "enum": ["commander", "custom-dollar-brawl"] } } },
+      "then": {
+        "properties": { "commanders": { "minItems": 1, "items": { "properties": { "quantity": { "const": 1 } } } } }
+      },
+      "else": { "properties": { "commanders": { "maxItems": 0 } } }
+    }
+  ],
+  "definitions": {
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount", "currency"],
+      "properties": {
+        "amount": { "type": "number", "minimum": 0 },
+        "currency": { "enum": ["USD", "EUR"] }
+      }
+    },
+    "text": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "quantity"],
+      "properties": {
+        "name": { "$ref": "#/definitions/text" },
+        "quantity": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "scryfall_id": { "type": "string", "pattern": "^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$" },
+        "role": { "type": "string" }
+      }
+    }
+  }
+}

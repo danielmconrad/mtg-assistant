@@ -2,12 +2,10 @@
 // statements are valid there, FTS5 included, and that a second run applies only the changes.
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { buildRows, diffRows } from '../../scripts/ingest/rows.mjs';
-import { TABLES, ingestStatements } from '../../scripts/ingest/sql.mjs';
-import { toCard } from '../../src/core/scryfall.mjs';
+import { TABLES } from '../../scripts/ingest/sql.mjs';
 import { scryfallCard, tokenCard } from '../fixtures/scryfall.mjs';
+import { BUILT, clearCardTables, ingest as runIngest } from './ingest-helper.mjs';
 
-const BUILT = '2026-11-12T10:06:21.099Z';
 const reanimate = scryfallCard('Reanimate', {
   type_line: 'Sorcery',
   mana_cost: '{B}',
@@ -26,26 +24,7 @@ const llanowar = scryfallCard('Llanowar Elves', {
   oracle_text: '{T}: Add {G}.',
 });
 
-async function currentHashes() {
-  const current = {};
-  for (const [table, { key }] of Object.entries(TABLES)) {
-    const { results } = await env.DB.prepare(`SELECT ${key} AS k, hash AS h FROM ${table}`).all();
-    current[table] = new Map(results.map((row) => [row.k, row.h]));
-  }
-  return current;
-}
-
-// One ingest, as the script runs it: diff against what's there, then apply the statements in order.
-async function ingest(objects) {
-  const rows = await buildRows(objects.map((object) => toCard(object, BUILT, { defaultPrinting: true })));
-  const current = await currentHashes();
-  const diff = Object.fromEntries(
-    Object.entries(TABLES).map(([table, { key }]) => [table, diffRows(rows[table], key, current[table])]),
-  );
-  const statements = ingestStatements(diff, { bulk_built_at: BUILT, card_count: rows.cards.length });
-  for (const statement of statements) await env.DB.prepare(statement).run();
-  return diff;
-}
+const ingest = async (objects) => (await runIngest(objects)).diff;
 
 const count = async (table) => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n;
 const search = async (query) =>
@@ -57,13 +36,7 @@ const search = async (query) =>
       .all()
   ).results.map((row) => row.name);
 
-beforeEach(async () => {
-  await env.DB.batch(
-    ['cards', 'printings', 'prices', 'cards_fts', 'card_data_meta'].map((table) =>
-      env.DB.prepare(`DELETE FROM ${table}`),
-    ),
-  );
-});
+beforeEach(clearCardTables);
 
 describe('ingest SQL in D1', () => {
   it('loads cards, printings, prices, the search index and meta', async () => {

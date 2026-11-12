@@ -5,8 +5,9 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 [mtg-manager](https://github.com/danielmconrad/mtg-manager) CLI with a Cloudflare Worker at
 `https://mtg-assistant.conrad.tools`.
 
-**Status:** step 2 of the plan. The server signs people in and serves one tool, `whoami`, and every card on
-Scryfall is loaded into D1 nightly. Card search, collections and decks come next.
+**Status:** step 3 of the plan. The server signs people in and serves one tool, `whoami`. Every card on
+Scryfall is loaded into D1 nightly, and mtg-manager's logic is ported to `src/core`, reading cards from D1.
+Collections, decks and the Milestone 1 tools come next.
 
 ## How it fits together
 
@@ -75,6 +76,17 @@ it.
 | `mise run check:production` | The post-deploy security checks, run against production                        |
 | `mise run auth:lockdown`    | Kill switch: production answers 503 everywhere                                 |
 | `mise run auth:unlock`      | Turns the kill switch off, then runs `check:production`                        |
+
+## Code layout
+
+- **`src/core/`:** mtg-manager's logic, ported nearly unchanged. That's the card model, collections, decks, rules,
+  search, stats, upgrades, commander ranking, export and EDHREC scoring. It runs in Node and workerd alike, with
+  no Node built-ins. The deck schema is compiled ahead of time, into `deck-validator.generated.mjs`, because
+  Workers can't compile it at runtime. Run `mise run generate:validator` after editing
+  `schemas/deck.schema.json`; a test fails if you forget.
+- **`src/storage/cards.mjs`:** loads just the cards a request needs from D1 and rebuilds mtg-manager's in-memory
+  cache from them, so `src/core` runs unchanged. A test checks every rebuilt card against `toCard`.
+- **`tests/core/`:** mtg-manager's own tests for the ported modules, now run with Vitest.
 
 ## Card data
 

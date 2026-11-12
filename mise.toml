@@ -84,6 +84,10 @@ depends = ["lint", "test", "scan"]
 description = "Apply D1 migrations to the local dev database"
 run = "wrangler d1 migrations apply mtg-assistant --local"
 
+[tasks."generate:validator"]
+description = "Recompile schemas/deck.schema.json into src/core/deck-validator.generated.mjs (after editing the schema)"
+run = "node scripts/generate-deck-validator.mjs"
+
 [tasks."ingest:local"]
 description = "Load every Scryfall card into the local dev database (network: about 107 MB from Scryfall)"
 run = ["wrangler d1 migrations apply mtg-assistant --local", "node scripts/ingest-scryfall.mjs --local"]
