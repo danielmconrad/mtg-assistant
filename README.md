@@ -62,14 +62,17 @@ it.
 
 ## Tasks
 
-| Task                      | What it does                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------ |
-| `mise run test`           | Unit, integration and security tests: workerd for the Worker, Node for scripts |
-| `mise run lint` / `fix`   | ESLint, Prettier, actionlint and zizmor                                        |
-| `mise run scan`           | npm audit and signatures, OSV-Scanner, lockfile-lint, Semgrep, gitleaks        |
-| `mise run ci`             | lint, test and scan, as CI runs them                                           |
-| `mise run setup:accounts` | Plans (or with `-- --apply`, makes) the Cloudflare and GitHub configuration    |
-| `mise run dev`            | Local Worker with local D1, KV and rate limiters                               |
+| Task                        | What it does                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `mise run test`             | Unit, integration and security tests: workerd for the Worker, Node for scripts |
+| `mise run lint` / `fix`     | ESLint, Prettier, actionlint and zizmor                                        |
+| `mise run scan`             | npm audit and signatures, OSV-Scanner, lockfile-lint, Semgrep, gitleaks        |
+| `mise run ci`               | lint, test and scan, as CI runs them                                           |
+| `mise run setup:accounts`   | Plans (or with `-- --apply`, makes) the Cloudflare and GitHub configuration    |
+| `mise run dev`              | Local Worker with local D1, KV and rate limiters                               |
+| `mise run check:production` | The post-deploy security checks, run against production                        |
+| `mise run auth:lockdown`    | Kill switch: production answers 503 everywhere                                 |
+| `mise run auth:unlock`      | Turns the kill switch off, then runs `check:production`                        |
 
 ## Deploys
 

@@ -35,15 +35,23 @@ function fakeDeployment(overrides = {}) {
   };
 }
 
-const run = async (overrides) => {
+const noSleep = async () => {};
+
+const run = async (overrides, fetchImpl = fakeDeployment(overrides)) => {
   const lines = [];
-  const failed = await runChecks(ORIGIN, {
-    fetchImpl: fakeDeployment(overrides),
-    env: ENV,
-    log: (line) => lines.push(line),
-  });
+  const failed = await runChecks(ORIGIN, { fetchImpl, env: ENV, log: (line) => lines.push(line), sleep: noSleep });
   return { failed, lines };
 };
+
+// Fails to connect the first `failures` times, as a new custom domain does, then behaves normally.
+function slowToStart(failures, fetchImpl = fakeDeployment()) {
+  let attempts = 0;
+  return async (input, init) => {
+    attempts += 1;
+    if (attempts <= failures) throw new TypeError('fetch failed', { cause: { code: 'ENOTFOUND' } });
+    return fetchImpl(input, init);
+  };
+}
 
 describe('post-deploy checks', () => {
   it('pass against a correctly protected deployment', async () => {
@@ -69,5 +77,30 @@ describe('post-deploy checks', () => {
     const { failed, lines } = await run(overrides);
     expect(failed).toBe(1);
     expect(lines.find((line) => line.startsWith('FAIL'))).toContain(check);
+  });
+
+  it('waits for a new domain to come up, then runs every check', async () => {
+    const { failed, lines } = await run(undefined, slowToStart(3));
+    expect(failed).toBe(0);
+    expect(lines.filter((line) => line.startsWith('...'))).toHaveLength(3);
+  });
+
+  it('fails once the domain never comes up', async () => {
+    const { failed, lines } = await run(undefined, slowToStart(1000));
+    expect(failed).toBe(1);
+    expect(lines.at(-1)).toMatch(/^FAIL .* is reachable/);
+  });
+
+  it('does not retry an HTTP error: a wrong answer fails straight away', async () => {
+    const { failed, lines } = await run({ 'POST /mcp': () => new Response('{}') });
+    expect(failed).toBe(1);
+    expect(lines.some((line) => line.startsWith('...'))).toBe(false);
+  });
+
+  it('says so when the Worker is in LOCKDOWN', async () => {
+    const lockedDown = async () => new Response('Temporarily unavailable', { status: 503 });
+    const { failed, lines } = await run(undefined, lockedDown);
+    expect(failed).toBe(1);
+    expect(lines).toEqual([expect.stringContaining('LOCKDOWN')]);
   });
 });

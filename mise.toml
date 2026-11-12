@@ -88,6 +88,18 @@ run = "wrangler d1 migrations apply mtg-assistant --local"
 description = "Create or update Cloudflare and GitHub resources from .env (shows a plan, asks before changing anything)"
 run = "node scripts/setup-accounts.mjs"
 
+[tasks."auth:lockdown"]
+description = "Kill switch: make the production Worker answer 503 on every route (uses the admin token in .env)"
+run = "echo 1 | wrangler secret put LOCKDOWN"
+
+[tasks."auth:unlock"]
+description = "Turn the kill switch off again, then re-run the post-deploy check against production"
+run = ["wrangler secret delete LOCKDOWN", "node scripts/post-deploy-check.mjs"]
+
+[tasks."check:production"]
+description = "Run the post-deploy security checks against production (network)"
+run = "node scripts/post-deploy-check.mjs"
+
 [tasks.inspector]
 description = "Open MCP Inspector to try the server's tools (start `mise run dev` first)"
 run = "npx --yes @modelcontextprotocol/inspector"
