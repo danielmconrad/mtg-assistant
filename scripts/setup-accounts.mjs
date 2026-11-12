@@ -428,9 +428,21 @@ async function ensureEnvironment(repo) {
 
 function ensureSecret(repo, name, value, environment) {
   const scope = environment ? ['--env', environment] : [];
-  return change(`set Actions secret ${name}${environment ? ` in ${environment}` : ''}`, () =>
-    gh(['secret', 'set', name, '--repo', repo, ...scope], value),
-  );
+  return change(`set Actions secret ${name}${environment ? ` in ${environment}` : ''}`, () => {
+    try {
+      return gh(['secret', 'set', name, '--repo', repo, ...scope], value);
+    } catch (error) {
+      // GitHub's 403 doesn't name the missing permission; the X-Accepted-GitHub-Permissions header does.
+      if (/HTTP 403/.test(error.message)) {
+        const permission = environment ? 'Environments' : 'Secrets';
+        throw new ApiError(
+          `${error.message}\nGH_TOKEN needs the "${permission}: Read and write" repository permission (see .env.example section 5).`,
+          403,
+        );
+      }
+      throw error;
+    }
+  });
 }
 
 async function ensureRuleset(repo) {
