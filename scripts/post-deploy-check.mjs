@@ -2,10 +2,44 @@
 // protections (WAF, Access, rate limits, workers.dev) can't be tested before deploy, so they're tested
 // here. Exits 1 on any failure, and CI then rolls back (or locks down).
 //
+// A first deploy's custom domain takes a little while to come up, so the checks wait for the origin to
+// answer at all (connection failures only; any HTTP answer, right or wrong, ends the wait).
+//
 //   node scripts/post-deploy-check.mjs [origin]
 import { pathToFileURL } from 'node:url';
 
 const DEFAULT_ORIGIN = 'https://mtg-assistant.conrad.tools';
+const REACHABLE_TIMEOUT_MS = 180_000;
+const REACHABLE_INTERVAL_MS = 5_000;
+const METADATA_PATH = '/.well-known/oauth-authorization-server';
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Resolves with the first HTTP response from the origin, or null if none came before the timeout.
+export async function waitUntilReachable(
+  origin,
+  {
+    fetchImpl = fetch,
+    sleep = pause,
+    timeoutMs = REACHABLE_TIMEOUT_MS,
+    intervalMs = REACHABLE_INTERVAL_MS,
+    log = console.log,
+  } = {},
+) {
+  for (let waited = 0; ; waited += intervalMs) {
+    try {
+      return await fetchImpl(new URL(METADATA_PATH, origin), { redirect: 'manual' });
+    } catch (error) {
+      if (waited + intervalMs > timeoutMs) return null;
+      log(`...  ${origin} not reachable yet (${error.cause?.code ?? error.message}); retrying`);
+      await sleep(intervalMs);
+    }
+  }
+}
+
+// The Worker's kill switch answers 503 "Temporarily unavailable" on every route.
+const isLockedDown = async (response) =>
+  response.status === 503 && (await response.clone().text()).trim() === 'Temporarily unavailable';
 
 // Each check returns null when it passes, or a description of what it found instead.
 export function buildChecks(origin, fetchImpl = fetch) {
@@ -100,7 +134,16 @@ export async function workersDevCheck(env = process.env, fetchImpl = fetch) {
   return null;
 }
 
-export async function runChecks(origin, { fetchImpl = fetch, env = process.env, log = console.log } = {}) {
+export async function runChecks(origin, { fetchImpl = fetch, env = process.env, log = console.log, sleep } = {}) {
+  const first = await waitUntilReachable(origin, { fetchImpl, sleep, log });
+  if (!first) {
+    log(`FAIL ${origin} is reachable: no answer within ${REACHABLE_TIMEOUT_MS / 1000}s`);
+    return 1;
+  }
+  if (await isLockedDown(first)) {
+    log('FAIL the Worker is in LOCKDOWN: check why, then `mise run auth:unlock` and re-run this check');
+    return 1;
+  }
   const checks = [
     ...buildChecks(origin, fetchImpl),
     ['workers.dev and preview URLs are off', () => workersDevCheck(env, fetchImpl)],
