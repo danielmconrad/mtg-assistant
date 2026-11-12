@@ -5,8 +5,8 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 [mtg-manager](https://github.com/danielmconrad/mtg-manager) CLI with a Cloudflare Worker at
 `https://mtg-assistant.conrad.tools`.
 
-**Status:** step 1 of the plan, the scaffold. The server signs people in and serves one tool, `whoami`;
-card search, collections and decks come next.
+**Status:** step 2 of the plan. The server signs people in and serves one tool, `whoami`, and every card on
+Scryfall is loaded into D1 nightly. Card search, collections and decks come next.
 
 ## How it fits together
 
@@ -53,6 +53,7 @@ Then:
 ```sh
 cp .env.worker.example .env.worker   # local Worker secrets; see the comments inside
 mise run db:migrate:local
+mise run ingest:local              # every Scryfall card into the local database (about 107 MB download)
 mise run dev                      # http://localhost:8787
 mise run inspector                # MCP Inspector, to call the tools
 ```
@@ -70,9 +71,25 @@ it.
 | `mise run ci`               | lint, test and scan, as CI runs them                                           |
 | `mise run setup:accounts`   | Plans (or with `-- --apply`, makes) the Cloudflare and GitHub configuration    |
 | `mise run dev`              | Local Worker with local D1, KV and rate limiters                               |
+| `mise run ingest:local`     | Load every Scryfall card into the local database                               |
 | `mise run check:production` | The post-deploy security checks, run against production                        |
 | `mise run auth:lockdown`    | Kill switch: production answers 503 everywhere                                 |
 | `mise run auth:unlock`      | Turns the kill switch off, then runs `check:production`                        |
+
+## Card data
+
+Every card on Scryfall lives in D1:
+
+- **`cards`:** rules text, color identity as a bitmask, legality, and EDHREC rank, with one row per card.
+- **`printings`:** set, collector number, rarity and whether it's the default printing, with one row per printing.
+- **`prices`:** USD, foil, etched and EUR prices.
+- **`cards_fts`:** a full-text index over names, type lines and rules text.
+
+`.github/workflows/scryfall.yml` runs `scripts/ingest-scryfall.mjs --remote` every day at 11:17 UTC, after
+Scryfall rebuilds its bulk files, and can also be started by hand from the Actions tab. It uses a token that can
+only edit D1. Each run streams the same two bulk files mtg-manager used, compares every row's hash with what's
+already in D1, and writes only what changed. A run with no changes writes one metadata row. It stops rather than
+delete more than 2% of a table, since that would point to a bad download.
 
 ## Deploys
 

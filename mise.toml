@@ -84,6 +84,10 @@ depends = ["lint", "test", "scan"]
 description = "Apply D1 migrations to the local dev database"
 run = "wrangler d1 migrations apply mtg-assistant --local"
 
+[tasks."ingest:local"]
+description = "Load every Scryfall card into the local dev database (network: about 107 MB from Scryfall)"
+run = ["wrangler d1 migrations apply mtg-assistant --local", "node scripts/ingest-scryfall.mjs --local"]
+
 [tasks."setup:accounts"]
 description = "Create or update Cloudflare and GitHub resources from .env (shows a plan, asks before changing anything)"
 run = "node scripts/setup-accounts.mjs"
