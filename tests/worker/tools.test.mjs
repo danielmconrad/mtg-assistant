@@ -376,6 +376,11 @@ const ISOLATION = {
     { slug: 'bears', ops: [{ op: 'set', field: 'notes', value: 'x' }] },
     (text) => expect(text).toMatch(/No deck named bears/),
   ],
+  // A second person's import makes their own deck; the owner's bears deck is no conflict.
+  import_deck: [
+    { list: '1 Sol Ring', slug: 'bears' },
+    (text) => expect(text).toMatch(/^Created bears \(casual-60, draft\)/),
+  ],
   add_cards: [
     { collection: 'binder', cards: '1 Forest' },
     (text) => expect(text).toMatch(/^No collection named binder \(yours: none yet\)/),

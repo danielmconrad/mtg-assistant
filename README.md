@@ -54,6 +54,11 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
     `lowest_legal_bracket` from the cards, and removes a `plays_like_bracket` judged for an older card list,
     as `deck:files` did.
   - **Built decks** keep their card list; only `build_deck` makes a deck built, and `swap_deck` changes its list.
+- **`import_deck`**: a draft deck from a public Archidekt link (its JSON API, through `src/outbound.mjs`, at most
+  10 a minute per person with `RL_IMPORT`) or a pasted Moxfield, Archidekt or Arena text export. Moxfield links
+  can't be fetched, since Moxfield refuses requests that don't come from a browser. Commander sections and
+  Archidekt's Commander category become commanders, sideboard and maybeboard cards are left out, and the deck is
+  saved as `create_deck` saves it.
   - **Concurrent edits:** a save is refused if the deck changed since it was read, so two edits can't
     silently overwrite each other.
 - **`add_cards`**, **`remove_cards`** and **`collection_changes`**: change one collection from a short text list
