@@ -91,15 +91,19 @@ function batched(items, toPart, head, tail = '') {
   return statements;
 }
 
-export function upsertStatements(table, rows) {
-  const { key, columns } = TABLES[table];
-  const updates = columns.filter((column) => column !== key).map((column) => `${column} = excluded.${column}`);
-  return batched(
+// Plain multi-row INSERTs for any table and columns, batched under the statement limit.
+export const insertStatements = (table, columns, rows, tail = '') =>
+  batched(
     rows,
     (row) => `(${columns.map((column) => literal(row[column])).join(', ')})`,
     `INSERT INTO ${table} (${columns.join(', ')}) VALUES `,
-    ` ON CONFLICT (${key}) DO UPDATE SET ${updates.join(', ')}`,
+    tail,
   );
+
+export function upsertStatements(table, rows) {
+  const { key, columns } = TABLES[table];
+  const updates = columns.filter((column) => column !== key).map((column) => `${column} = excluded.${column}`);
+  return insertStatements(table, columns, rows, ` ON CONFLICT (${key}) DO UPDATE SET ${updates.join(', ')}`);
 }
 
 export function deleteStatements(table, keys) {

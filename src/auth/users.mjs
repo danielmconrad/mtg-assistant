@@ -1,14 +1,29 @@
 // Users and the auth audit log, in D1. A user's Google subject is pinned at first sign-in, so a
 // recycled or reassigned email address can't take over the account.
 
-// Returns { user } or { problem }.
+// A reserved account (pending = 1) holds data loaded before its first sign-in. That sign-in claims it,
+// replacing the placeholder Google ID with the real one, unless that Google account already has an
+// account of its own. The UPDATE only matches while the account is still pending, so it's claimed once.
+async function claimReserved(db, reserved, sub) {
+  const bySub = await db.prepare('SELECT id FROM users WHERE google_sub = ?').bind(sub).first();
+  if (bySub) return { problem: 'this Google account is registered under another email' };
+  const { meta } = await db
+    .prepare('UPDATE users SET google_sub = ?, pending = 0, last_login_at = ? WHERE id = ? AND pending = 1')
+    .bind(sub, new Date().toISOString(), reserved.id)
+    .run();
+  if (meta.changes !== 1) return { problem: 'this account was claimed by another sign-in' };
+  return { user: { ...reserved, google_sub: sub, pending: 0 }, claimed: true };
+}
+
+// Returns { user, claimed? } or { problem }.
 export async function signInUser(db, { email, sub }) {
   const byEmail = await db
-    .prepare('SELECT id, email, google_sub, disabled FROM users WHERE email = ?')
+    .prepare('SELECT id, email, google_sub, disabled, pending FROM users WHERE email = ?')
     .bind(email)
     .first();
+  if (byEmail?.disabled) return { problem: 'account disabled' };
+  if (byEmail?.pending) return claimReserved(db, byEmail, sub);
   if (byEmail) {
-    if (byEmail.disabled) return { problem: 'account disabled' };
     if (byEmail.google_sub !== sub) {
       return { problem: 'Google account does not match the one first used for this email' };
     }
@@ -31,8 +46,11 @@ export async function signInUser(db, { email, sub }) {
 
 // The user behind a token, if still active and still matching the token's identity.
 export async function activeUser(db, { userId, email, sub }) {
-  const user = await db.prepare('SELECT id, email, google_sub, disabled FROM users WHERE id = ?').bind(userId).first();
-  if (!user || user.disabled || user.email !== email || user.google_sub !== sub) return null;
+  const user = await db
+    .prepare('SELECT id, email, google_sub, disabled, pending FROM users WHERE id = ?')
+    .bind(userId)
+    .first();
+  if (!user || user.disabled || user.pending || user.email !== email || user.google_sub !== sub) return null;
   return user;
 }
 
