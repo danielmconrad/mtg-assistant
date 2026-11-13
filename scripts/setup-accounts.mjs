@@ -24,6 +24,7 @@ const ACCESS_POLICY = 'mtg-assistant allowlist';
 const RULE_PREFIX = 'mtg-assistant-';
 // The Worker's public paths (src/index.mjs ROUTES). The WAF blocks everything else at the edge.
 export const PUBLIC_PATHS = [
+  '/',
   '/.well-known/oauth-authorization-server',
   '/.well-known/oauth-protected-resource',
   '/.well-known/oauth-protected-resource/mcp',

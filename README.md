@@ -3,7 +3,7 @@
 A private, invite-only remote MCP server for managing Magic: The Gathering collections and building decks,
 usable from the Claude mobile, web and desktop apps and from Claude Code. It replaces the local
 [mtg-manager](https://github.com/danielmconrad/mtg-manager) CLI with a Cloudflare Worker at
-`https://mtg-assistant.conrad.tools`.
+`https://mtg-assistant.conrad.tools`, whose homepage (`src/home.mjs`, public) explains how to connect Claude.
 
 **Status:** Milestone 1 (read-only) is complete. Every card on Scryfall is loaded into D1 nightly, mtg-manager's
 logic is ported to `src/core`, each person's collections and decks live in D1, and these read-only tools are
@@ -275,10 +275,13 @@ the `lint`, `test` and `scan` jobs pass. The deploy job:
 1. Applies D1 migrations, which a test keeps additive-only.
 2. Deploys the Worker.
 3. Runs `scripts/post-deploy-check.mjs` against production. It checks what can only be seen live: unknown
-   paths are blocked at the edge, Access guards the browser routes, `/register` is rate limited, `/mcp` refuses
+   paths are blocked at the edge, the homepage is public, Access guards the browser routes, `/register` is rate limited, `/mcp` refuses
    anonymous calls, and workers.dev and preview URLs are off.
 4. Rolls back if anything fails. If there's no earlier version, as on the first deploy, it turns on `LOCKDOWN`
    instead.
+
+A new public path changes the WAF rule as well as the Worker: run `mise run setup:accounts --apply` before
+merging it, or the post-deploy check finds the path blocked and rolls the deploy back.
 
 A weekly workflow reruns the scans, and Dependabot proposes grouped updates after a 7-day cooldown.
 

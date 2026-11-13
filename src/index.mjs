@@ -7,6 +7,7 @@ import { registrationPolicy } from './auth/registration.mjs';
 import { activeUser, logAuthEvent } from './auth/users.mjs';
 import { isAllowedEmail, readConfig } from './config.mjs';
 import { handleDownload } from './downloads.mjs';
+import { homePage } from './home.mjs';
 import { clientIp, notFound, withSecurityHeaders } from './http.mjs';
 import { handleMcpRequest } from './mcp/server.mjs';
 import { matchRoute } from './routes.mjs';
@@ -62,6 +63,7 @@ const mcpHandler = {
 const defaultHandler = {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
+    if (pathname === '/') return homePage(readConfig(env));
     if (pathname === '/authorize' || pathname === '/callback') {
       return handleBrowserAuth(request, env, readConfig(env), pathname);
     }
