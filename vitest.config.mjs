@@ -29,11 +29,19 @@ export default defineConfig(async () => {
           ],
           test: { name: 'worker', include: ['tests/worker/**/*.test.mjs'], setupFiles: ['tests/worker/setup.mjs'] },
         },
-        { test: { name: 'node', environment: 'node', include: ['tests/node/**/*.test.mjs'] } },
+        {
+          test: {
+            name: 'node',
+            environment: 'node',
+            include: ['tests/node/**/*.test.mjs', 'tests/core/**/*.test.mjs'],
+          },
+        },
       ],
       coverage: {
         provider: 'istanbul',
         include: ['src/**'],
+        // Generated from schemas/deck.schema.json; tests/node/runtime-boundaries.test.mjs keeps it current.
+        exclude: ['src/core/deck-validator.generated.mjs'],
         thresholds: { lines: 80 },
       },
     },

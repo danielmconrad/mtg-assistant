@@ -136,7 +136,10 @@ export async function buildRows(printings) {
     all.map((printing) => withHash(printingRow(printing, base.get(printing.oracleId)))),
   );
   const prices = await Promise.all(all.map((printing) => withHash(priceRow(printing))));
+  // Every format any card is judged in, so readers can fill in not_legal for the rest.
+  const formats = [...new Set(all.flatMap((printing) => Object.keys(printing.legalities)))].sort();
   return {
+    formats,
     cards: cards.sort(byKey('oracle_id')),
     printings: printingRows.sort(byKey('id')),
     prices: prices.sort(byKey('printing_id')),

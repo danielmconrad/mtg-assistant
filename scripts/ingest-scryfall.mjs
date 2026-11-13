@@ -150,6 +150,7 @@ async function main() {
     ingested_at: new Date().toISOString(),
     card_count: rows.cards.length,
     printing_count: rows.printings.length,
+    formats: JSON.stringify(rows.formats),
   };
   const files = chunkStatements(ingestStatements(diff, meta));
   const directory = await mkdtemp(join(tmpdir(), 'mtg-ingest-'));

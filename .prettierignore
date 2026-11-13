@@ -2,3 +2,4 @@
 package-lock.json
 coverage/
 .wrangler/
+src/core/deck-validator.generated.mjs

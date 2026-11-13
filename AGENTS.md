@@ -30,6 +30,14 @@ outrank convenience.
 - D1 migrations are additive only, so a deploy can apply them before the new code is live.
 - Record security-relevant outcomes with `logAuthEvent`. Never log tokens, secrets or purchase prices.
 
+## Ported logic
+
+- `src/core/` is mtg-manager's logic. Keep changes to it small and in mtg-manager's style, and keep `tests/core/`
+  passing, since they're mtg-manager's own tests. Anything there must run in workerd:
+  `tests/node/runtime-boundaries.test.mjs` refuses Node built-ins and runtime code generation.
+- Card data reaches `src/core` only through `src/storage/cards.mjs`. Load just the cards a request needs.
+- After editing `schemas/deck.schema.json`, run `mise run generate:validator`.
+
 ## Checks
 
 - Run `mise run fix`, then `mise run ci` (lint, tests, scans) before calling a change done, and report any
