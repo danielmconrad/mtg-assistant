@@ -389,6 +389,12 @@ const ISOLATION = {
     (text) => expect(text).toMatch(/^No collection changes since 2026-01-01\./),
   ],
   get_download_link: [{ collection: 'all' }, (text) => expect(text).toBe('No collections to download yet.')],
+  build_deck: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
+  teardown_deck: [{ slug: 'bears', to: 'binder' }, (text) => expect(text).toMatch(/No deck named bears/)],
+  swap_deck: [
+    { slug: 'bears', out: ['Sol Ring'], in: ['Lightning Bolt'], to: 'binder' },
+    (text) => expect(text).toMatch(/No deck named bears/),
+  ],
   get_workflow: [{ name: 'collection-survey' }, (text) => expect(text).toMatch(/^# Surveying the collection/)],
 };
 

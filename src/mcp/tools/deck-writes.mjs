@@ -282,7 +282,7 @@ function checked(deck, deckSlug) {
 
 // Records lowest_legal_bracket from the cards (casual decks have none) and removes a plays_like_bracket
 // judged for an older card list, unless this change set it. Returns the notes for the reply.
-async function recordBrackets(db, deck, { listChanged, judged }) {
+export async function recordBrackets(db, deck, { listChanged, judged }) {
   const { index } = await cardIndexFor(db, await loadCardRows(db, { names: namesIn(deck) }));
   const bracket = lowestLegalBracket(deck, index);
   const notes = [];

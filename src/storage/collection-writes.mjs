@@ -89,32 +89,43 @@ export function planRemove(takes) {
   return { updates, inserts: [], deletes };
 }
 
-// Writes planned changes to collections as one batch. changes is [{ collection, plan, events }], where
-// events are [{ name, scryfallId, finish, change }]. Returns false, writing nothing, when any collection
-// changed since it was read (or a new one's name was taken meanwhile).
-export async function applyCollectionChanges(db, userId, changes, { source, note = null, now }) {
-  const revision = crypto.randomUUID();
-  const at = new Date(now).toISOString();
-  // Each guard moves a collection to this change's revision only from the revision it was read at; every
-  // other statement applies only when all of them did.
-  const guards = changes.map(({ collection }) =>
-    collection.isNew
-      ? db
-          .prepare(
-            `INSERT INTO collections (id, user_id, name, path, format, protected, created_at, updated_at, revision)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, name) DO NOTHING`,
-          )
-          .bind(collection.id, userId, collection.name, collection.path, 'text', collection.protected, at, at, revision)
-      : db
-          .prepare(
-            `UPDATE collections SET revision = ?, updated_at = ?
-             WHERE id = ? AND user_id = ? AND COALESCE(revision, '') = ?`,
-          )
-          .bind(revision, at, collection.id, userId, collection.revision ?? ''),
-  );
-  const applies = `(SELECT COUNT(*) FROM collections WHERE user_id = ? AND revision = ?) = ?`;
-  const guard = [userId, revision, changes.length];
-  const statements = changes.flatMap(({ collection, plan, events }) => [
+// The row changes for a collection that both loses copies (takes: [{ entry, quantity }]) and gains them
+// (copies, as planAdd takes them), as a physical-deck move may do to one binder. Copies taken first, so
+// returned copies can join the rows they left.
+export function planChange(entries, { takes = [], copies = [] }) {
+  const taken = new Map();
+  for (const { entry, quantity } of takes) taken.set(entry.id, (taken.get(entry.id) ?? 0) + quantity);
+  const left = entries.map((entry) => ({ ...entry, quantity: entry.quantity - (taken.get(entry.id) ?? 0) }));
+  if (left.some((entry) => entry.quantity < 0)) throw new Error('A move takes more copies than a row holds');
+  const kept = left.filter((entry) => entry.quantity > 0);
+  const added = planAdd(kept, copies);
+  const updates = new Map(kept.filter((entry) => taken.has(entry.id)).map((entry) => [entry.id, entry.quantity]));
+  for (const [id, quantity] of added.updates) updates.set(id, quantity);
+  return {
+    updates,
+    inserts: added.inserts,
+    deletes: left.filter((entry) => entry.quantity <= 0).map((entry) => entry.id),
+  };
+}
+
+const collectionGuard = (db, userId, collection, revision, at) =>
+  collection.isNew
+    ? db
+        .prepare(
+          `INSERT INTO collections (id, user_id, name, path, format, protected, created_at, updated_at, revision)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, name) DO NOTHING`,
+        )
+        .bind(collection.id, userId, collection.name, collection.path, 'text', collection.protected, at, at, revision)
+    : db
+        .prepare(
+          `UPDATE collections SET revision = ?, updated_at = ?
+           WHERE id = ? AND user_id = ? AND COALESCE(revision, '') = ?`,
+        )
+        .bind(revision, at, collection.id, userId, collection.revision ?? '');
+
+// The statements for one collection's row changes and events, each applying only when applies holds.
+function rowStatements(db, userId, { collection, plan, events }, { applies, guard, revision, at, source, note }) {
+  return [
     ...[...plan.updates].map(([id, quantity]) =>
       db
         .prepare(`UPDATE collection_entries SET quantity = ? WHERE id = ? AND user_id = ? AND ${applies}`)
@@ -168,7 +179,61 @@ export async function applyCollectionChanges(db, userId, changes, { source, note
           ...guard,
         ),
     ),
-  ]);
+  ];
+}
+
+// Writes planned changes as one batch. changes is [{ collection, plan, events, remove? }], where events
+// are [{ name, scryfallId, finish, change }] and remove deletes the collection once its rows are gone (a
+// torn-down deck's own list). deck, when given ({ slug, updatedAt, doc }), is saved in the same batch.
+// Returns false, writing nothing, when any collection or the deck changed since it was read (or a new
+// collection's name was taken meanwhile).
+export async function applyCollectionChanges(db, userId, changes, { source, note = null, now, deck }) {
+  const revision = crypto.randomUUID();
+  const at = new Date(now).toISOString();
+  // Each guard moves a collection (or the deck) to this change's revision only from the one it was read
+  // at, changing nothing else; every other statement applies only when all the guards did.
+  const guards = changes.map(({ collection }) => collectionGuard(db, userId, collection, revision, at));
+  if (deck) {
+    guards.push(
+      db
+        .prepare('UPDATE decks SET revision = ? WHERE user_id = ? AND slug = ? AND updated_at = ?')
+        .bind(revision, userId, deck.slug, deck.updatedAt),
+    );
+  }
+  const applies = `(SELECT COUNT(*) FROM collections WHERE user_id = ? AND revision = ?)
+    + (SELECT COUNT(*) FROM decks WHERE user_id = ? AND revision = ?) = ?`;
+  const guard = [userId, revision, userId, revision, guards.length];
+  const context = { applies, guard, revision, at, source, note };
+  const statements = changes.flatMap((change) => rowStatements(db, userId, change, context));
+  if (deck) {
+    // A save in the same millisecond as the last must still change updated_at.
+    const savedAt = new Date(Math.max(now, Date.parse(deck.updatedAt) + 1)).toISOString();
+    statements.push(
+      db
+        .prepare(
+          `UPDATE decks SET name = ?, format = ?, status = ?, doc = ?, updated_at = ?
+           WHERE user_id = ? AND slug = ? AND ${applies}`,
+        )
+        .bind(
+          deck.doc.name,
+          deck.doc.format,
+          deck.doc.status,
+          JSON.stringify(deck.doc),
+          savedAt,
+          userId,
+          deck.slug,
+          ...guard,
+        ),
+    );
+  }
+  // Deleting a collection lowers the guard count, so these come last.
+  for (const { collection } of changes.filter((change) => change.remove)) {
+    statements.push(
+      db
+        .prepare(`DELETE FROM collections WHERE id = ? AND user_id = ? AND ${applies}`)
+        .bind(collection.id, userId, ...guard),
+    );
+  }
   const results = await db.batch([...guards, ...statements]);
   return results.slice(0, guards.length).every(({ meta }) => meta.changes === 1);
 }
