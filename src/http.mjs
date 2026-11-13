@@ -74,7 +74,7 @@ const STYLE = `
       inset 0 calc(-3px - var(--band)) 2px -0.5px rgba(70, 62, 52, 0.5),
       inset calc(-1 * var(--side)) 0 5px -2px rgba(255, 251, 243, 0.6),
       inset var(--side) 0 5px -2px rgba(28, 24, 20, 0.7); }
-  h1 { margin: 0; font: 800 1em/1.1 var(--display); letter-spacing: -0.005em; overflow-wrap: anywhere; }
+  h1, .plaque h2 { margin: 0; font: 800 1em/1.1 var(--display); letter-spacing: -0.005em; overflow-wrap: anywhere; }
   /* The card: a lighter smoke panel holding the name bar and, below it, the page on the art. */
   .card { padding: 8px 8px 4px; border-radius: 14px; overflow-wrap: anywhere;
     background:
@@ -110,6 +110,29 @@ const STYLE = `
   button[value=approve]:hover, form > p > button:only-child:hover { background: #f09550; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; }
   .warn { padding: 10px 12px; border-left: 3px solid var(--ember); border-radius: 4px; background: rgba(232, 132, 58, 0.13); color: var(--parch-hi); }
+  /* The homepage: cards stacked, the first a larger hero. */
+  .card + .card { margin-top: 18px; }
+  .hero .frame { font-size: clamp(1.9rem, 8vw, 2.6rem); --bevel: 4px; --rx: 0.46em; --band: 4px; --side: 7px; }
+  .lede { font-size: 1.2rem; line-height: 1.35; color: var(--white); }
+  .hero .card-body { margin-top: 12px; }
+  .asks { margin: 0 0 16px; padding: 0; list-style: none; }
+  .asks li { margin: 0 0 8px; padding: 7px 12px; line-height: 1.35; font-style: italic; color: var(--parch-hi); border-left: 3px solid var(--ember);
+    border-radius: 4px; background: rgba(0, 0, 0, 0.22); }
+  .asks li::before { content: '“'; } .asks li::after { content: '”'; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 6px; }
+  a.button { flex: 1 1 12rem; display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 8px 18px;
+    font: 700 1rem/1 var(--serif); text-decoration: none; color: var(--ember); border: 1.5px solid var(--ember); border-radius: 999px; }
+  a.button.primary { color: #1a120b; background: var(--ember); }
+  a.button:hover { background: rgba(232, 132, 58, 0.16); } a.button.primary:hover { background: #f09550; }
+  a.button:focus-visible { outline: 2px solid var(--white); outline-offset: 2px; }
+  h3 { margin: 16px 0 6px; font: 700 0.78rem/1.3 var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ember); }
+  .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 2px 18px; margin: 0 0 8px; padding: 0; list-style: none; }
+  .tools li { margin: 0; padding: 3px 0; }
+  .tools code { display: block; width: fit-content; margin-top: 1px; font-size: 0.75rem; color: var(--silver); background: none; padding: 0; }
+  .playbooks { padding: 0; list-style: none; }
+  .playbooks li { margin: 0 0 10px; }
+  .playbooks small { display: block; color: var(--silver); font-size: 0.9rem; line-height: 1.35; }
+  html { scroll-behavior: smooth; }
   /* Credit: the card's bottom legal line. */
   .credit { margin: 20px 4px 30px; font-size: 0.85rem; color: var(--mist); letter-spacing: 0.02em; }
   .credit p { margin: 0; }
@@ -118,16 +141,25 @@ const STYLE = `
 
 // Renders a page from trusted markup; callers escape anything that came from a request or a client.
 // formActions lists the origins a form post may redirect to (browsers apply form-action to redirects).
-export function htmlPage(title, bodyHtml, { status = 200, headers, formActions = [] } = {}) {
+// A card: a heading (trusted markup) in its name bar, and the rest below it.
+export const card = (heading, body, { id, className } = {}) =>
+  `<article class="card${className ? ` ${className}` : ''}"${id ? ` id="${escapeHtml(id)}"` : ''}>${heading ? `<div class="frame"><div class="plaque">${heading}</div></div>` : ''}<div class="card-body">${body}</div></article>`;
+
+// cards: bodyHtml is already a run of cards (the homepage); otherwise a leading <h1> becomes the one
+// card's name bar and the rest goes below it.
+export function htmlPage(
+  title,
+  bodyHtml,
+  { status = 200, headers, formActions = [], cards = false, eyebrow = 'MTG Assistant' } = {},
+) {
   const styleNonce = nonce();
-  // A leading <h1> becomes the card's name bar; the rest goes below it.
   const [, heading = '', rest = bodyHtml] = /^\s*(<h1>[\s\S]*?<\/h1>)([\s\S]*)$/.exec(bodyHtml) ?? [];
   const page = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title><link rel="stylesheet" href="${FONTS_CSS}">
 <style nonce="${styleNonce}">${STYLE}</style></head>
-<body><header class="wrap"><p class="eyebrow">MTG Assistant</p></header>
-<main class="wrap"><article class="card">${heading ? `<div class="frame"><div class="plaque">${heading}</div></div>` : ''}<div class="card-body">${rest}</div></article>
+<body><header class="wrap"><p class="eyebrow">${escapeHtml(eyebrow)}</p></header>
+<main class="wrap">${cards ? bodyHtml : card(heading, rest)}
 <footer class="credit"><p><b>MTG Assistant</b> · your collection and decks, in Claude</p></footer></main></body></html>`;
   const response = new Response(page, { status, headers });
   response.headers.set('Content-Type', 'text/html; charset=utf-8');
