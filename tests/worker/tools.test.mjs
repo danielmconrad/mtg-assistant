@@ -450,7 +450,11 @@ const ISOLATION = {
     { slug: 'bears', out: ['Sol Ring'], in: ['Lightning Bolt'], to: 'binder' },
     (text) => expect(text).toMatch(/No deck named bears/),
   ],
-  get_upload_link: [{}, (text) => expect(text).toMatch(/^Upload page:\nhttps:\/\/\S+\/upload\?token=/)],
+  import_collection: [{}, (text) => expect(text).toMatch(/^Import page:\nhttps:\/\/\S+\/upload\?token=/)],
+  import_binder: [
+    { binder: 'binder', cards: '1 Forest' },
+    (text) => expect(text).toMatch(/^No binder named binder \(yours: none yet\)/),
+  ],
   // With nothing owned, the top of the ranking is empty, so nothing is fetched.
   refresh_edhrec: [{ top: 1 }, (text) => expect(text).toMatch(/^EDHREC pages for 0 commanders/)],
   get_workflow: [{ name: 'collection-survey' }, (text) => expect(text).toMatch(/^# Surveying the collection/)],

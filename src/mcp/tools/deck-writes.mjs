@@ -390,7 +390,8 @@ const updateSchema = z
   })
   .strict();
 
-async function updateDeck(args, { db, user, now }) {
+// Changes the deck and returns the reply's lines. import_deck merges and replaces decks through it too.
+export async function updateDeckLines(args, { db, user, now }) {
   const loaded = await loadDeckForUpdate(db, user.id, args.slug);
   if (!loaded) throw new ToolError(`No deck named ${args.slug}; list_decks shows yours`);
   const deck = checked(await applyOperations(db, loaded.deck, args.ops, now), args.slug);
@@ -408,8 +409,10 @@ async function updateDeck(args, { db, user, now }) {
     throw new ToolError(`${args.slug} changed while this was being saved; read it again and redo the changes`);
   }
   const count = args.ops.length;
-  return textResult([`Saved ${args.slug}: ${count} change${count === 1 ? '' : 's'}. ${sizeLine(deck)}`, ...notes]);
+  return [`Saved ${args.slug}: ${count} change${count === 1 ? '' : 's'}. ${sizeLine(deck)}`, ...notes];
 }
+
+const updateDeck = async (args, ctx) => textResult(await updateDeckLines(args, ctx));
 
 const WRITES = { readOnlyHint: false, openWorldHint: false };
 

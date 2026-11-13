@@ -1,9 +1,11 @@
-// /upload: the upload page, from a signed link get_upload_link made. Cloudflare Access guards the route,
-// and the Access identity must be the link's user. Choosing a file previews it: the raw file goes to the
-// private R2 bucket and a row in uploads, and the page lists what would change. Nothing is applied until
-// the person confirms that preview, which works once and carries its own CSRF token. Applying replans
-// from the stored file, guarded on the collection's revision at preview, so it applies exactly what the
-// preview showed or nothing.
+// /upload: the upload page, from a signed link import_collection or import_binder made. It imports a file
+// into one binder, or a ManaBox export as the whole collection. Cloudflare Access guards the route, and the
+// Access identity must be the link's user. Choosing a file previews it: the raw file goes to the private
+// R2 bucket and a row in uploads, and the page lists what would change. Nothing is applied until the person
+// confirms that preview, which works once and carries its own CSRF token. Applying replans from the stored
+// file, guarded on every touched binder's revision at preview, so it applies exactly what the preview
+// showed or nothing.
+import { parse } from 'csv-parse/sync';
 import { verifyAccess } from './auth/access.mjs';
 import { logAuthEvent } from './auth/users.mjs';
 import { collectionChanges, decksNaming } from './core/collection-diff.mjs';
@@ -14,7 +16,19 @@ import { LinkKeyMissing, useLink, verifyLink } from './links.mjs';
 import { resolvedRows, targetCollection } from './mcp/tools/collection-writes.mjs';
 import { ToolError } from './mcp/tools/shared.mjs';
 import { cardIndexFor, loadCardRows } from './storage/cards.mjs';
-import { applyCollectionChanges, entriesFor, planAdd, sourceRecords } from './storage/collection-writes.mjs';
+import {
+  BINDER_NAME_RULE,
+  applyCollectionChanges,
+  entriesFor,
+  isValidBinderName,
+  newBinder,
+  planAdd,
+  planReplace,
+  replaceEvents,
+  sourceRecords,
+} from './storage/collection-writes.mjs';
+import { listCollections } from './storage/collections.mjs';
+import { loadAllDecks } from './storage/decks.mjs';
 
 export const UPLOAD_PURPOSE = 'upload';
 export const UPLOAD_TTL_MS = 10 * 60 * 1000;
@@ -22,6 +36,7 @@ export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 // Each preview uses the link once, so a wrong file or setting can be fixed; each preview applies once.
 export const MAX_UPLOAD_PREVIEWS = 3;
 export const UPLOAD_MODES = ['merge', 'replace'];
+export const UPLOAD_TARGETS = ['binder', 'collection'];
 const PREVIEW_TTL_MS = 30 * 60 * 1000;
 // Room for the form's other fields and the multipart boundaries around the file.
 const FORM_OVERHEAD_BYTES = 64 * 1024;
@@ -59,7 +74,7 @@ async function uploadedRows(db, text, { format, fileName }) {
   let records;
   try {
     rows = parseCollection(text, fileName);
-    records = sourceRecords(text);
+    records = parse(text, { bom: true, skip_empty_lines: true, columns: true });
   } catch (error) {
     throw new UploadProblem(error.message);
   }
@@ -76,44 +91,53 @@ async function uploadedRows(db, text, { format, fileName }) {
         .join('\n'),
     );
   }
-  return rows.map((row) => ({ ...row, sourceRecord: records[row.position] }));
+  const kept = sourceRecords(text);
+  return rows.map((row) => ({
+    ...row,
+    sourceRecord: kept[row.position],
+    binder: records[row.position]['Binder Name']?.trim() ?? '',
+    binderType: records[row.position]['Binder Type']?.trim().toLowerCase() ?? '',
+  }));
 }
 
-// Replacing a collection deletes its rows and writes the file's in its order.
-const replacement = (entries, rows) => ({
-  updates: new Map(),
-  deletes: entries.map((entry) => entry.id),
-  inserts: rows.map((row, position) => ({
-    position,
-    name: row.name,
-    quantity: row.quantity,
-    scryfall_id: row.scryfallId,
-    set_code: row.set ?? null,
-    collector_number: row.collectorNumber ?? null,
-    finish: row.finish,
-    is_proxy: row.isProxy ? 1 : 0,
-    in_deck_binder: row.inDeckBinder ? 1 : 0,
-    source_record: row.sourceRecord ?? null,
-  })),
-});
-
-// A replacement's log entries: the net change per printing and finish, not every row rewritten.
-function netEvents(entries, rows) {
-  const net = new Map();
-  const count = (name, scryfallId, finish, change) => {
-    const key = `${scryfallId}|${finish}|${name}`;
-    const event = net.get(key) ?? { name, scryfallId, finish, change: 0 };
-    event.change += change;
-    net.set(key, event);
+// One binder's change: rows merged in or replacing its own. The binder's format follows a replacing file.
+async function binderChange(db, userId, collection, rows, { merge, format }) {
+  const entries = collection.isNew ? [] : await entriesFor(db, userId, collection.id);
+  const plan = merge ? planAdd(entries, rows) : planReplace(entries, rows);
+  const events = merge
+    ? rows.map((row) => ({ name: row.name, scryfallId: row.scryfallId, finish: row.finish, change: row.quantity }))
+    : replaceEvents(entries, rows);
+  const changedFormat = !merge && !collection.isNew && collection.format !== format ? format : undefined;
+  return {
+    change: { collection, plan, events, format: changedFormat },
+    before: entries,
+    after: merge ? [...entries, ...rows] : rows,
   };
-  for (const entry of entries) count(entry.name, entry.scryfall_id, entry.finish, -entry.quantity);
-  for (const row of rows) count(row.name, row.scryfallId, row.finish, row.quantity);
-  return [...net.values()].filter((event) => event.change);
 }
 
-// What an upload does to its collection: the change applyCollectionChanges writes, and the per-card
-// differences and decks naming them, for the page.
-async function planUpload(db, userId, upload, text, now) {
+// The page's view of a set of binder changes: each binder's net card changes and the decks naming them.
+function summarized(planned, decks, extra = {}) {
+  const before = new Map(
+    planned.filter((item) => !item.change.collection.isNew).map((item) => [item.change.collection.name, item.before]),
+  );
+  const after = new Map(
+    planned.filter((item) => !item.change.remove).map((item) => [item.change.collection.name, item.after]),
+  );
+  const changes = collectionChanges(before, after);
+  return {
+    changes: planned.map((item) => item.change),
+    binders: changes,
+    cards: changes.reduce((sum, binder) => sum + binder.cards.length, 0),
+    decks: decksNaming(
+      changes,
+      decks.filter(({ deck }) => isActiveDeck(deck)),
+    ),
+    ...extra,
+  };
+}
+
+// What a binder upload does: one binder, merged or replaced, created if new.
+async function planBinder(db, userId, upload, text, now) {
   const rows = await uploadedRows(db, text, { format: upload.format, fileName: upload.file_name });
   let target;
   try {
@@ -121,38 +145,93 @@ async function planUpload(db, userId, upload, text, now) {
   } catch (error) {
     throw asProblem(error);
   }
-  const { collection, decks } = target;
-  const entries = collection.isNew ? [] : await entriesFor(db, userId, collection.id);
-  const merge = upload.mode === 'merge';
-  const plan = merge ? planAdd(entries, rows) : replacement(entries, rows);
-  const events = merge
-    ? rows.map((row) => ({ name: row.name, scryfallId: row.scryfallId, finish: row.finish, change: row.quantity }))
-    : netEvents(entries, rows);
-  const before = new Map(collection.isNew ? [] : [[collection.name, entries]]);
-  const changes = collectionChanges(before, new Map([[collection.name, merge ? [...entries, ...rows] : rows]]));
-  const format = !merge && !collection.isNew && collection.format !== upload.format ? upload.format : undefined;
-  return {
-    collection,
-    change: { collection, plan, events, format },
-    cards: changes[0]?.cards ?? [],
-    decks: decksNaming(
-      changes,
-      decks.filter(({ deck }) => isActiveDeck(deck)),
-    ),
-  };
+  const item = await binderChange(db, userId, target.collection, rows, {
+    merge: upload.mode === 'merge',
+    format: upload.format,
+  });
+  return summarized([item], target.decks, { skipped: [] });
 }
+
+// A ManaBox export's binders, in the file's order: each Binder Name with its rows, ManaBox decks as deck
+// binders. Lists (wishlists) aren't owned cards, so they're left out and counted.
+function fileBinders(rows) {
+  const binders = new Map();
+  let listCopies = 0;
+  for (const row of rows) {
+    if (row.binderType === 'list') {
+      listCopies += row.quantity;
+      continue;
+    }
+    const name = row.binder || 'ManaBox';
+    if (!isValidBinderName(name)) {
+      throw new UploadProblem(`The binder "${name}" can't be a binder name: ${BINDER_NAME_RULE}.`);
+    }
+    const binder = binders.get(name) ?? { name, kind: 'binder', rows: [] };
+    if (row.binderType === 'deck') binder.kind = 'deck';
+    binder.rows.push(row);
+    binders.set(name, binder);
+  }
+  return { binders: [...binders.values()], listCopies };
+}
+
+// What a whole-collection upload does. Merging adds each ManaBox binder's cards to the binder of that name,
+// creating the ones that are new: ManaBox decks as protected deck binders, the rest unprotected. Replacing
+// also makes each binder exactly the file's and removes binders the file doesn't have, so the collection
+// becomes the file. A built deck's binder is never changed by an upload; it's listed as skipped.
+async function planWholeCollection(db, userId, upload, text, now) {
+  if (upload.format !== 'manabox_csv') {
+    throw new UploadProblem('A whole collection comes from a ManaBox CSV export, which names each card’s binder.');
+  }
+  const { binders, listCopies } = fileBinders(
+    await uploadedRows(db, text, { format: upload.format, fileName: upload.file_name }),
+  );
+  const [existing, decks] = await Promise.all([listCollections(db, userId), loadAllDecks(db, userId)]);
+  const builtInto = (binder) => decks.find(({ deck }) => deck.collection_destination === binder.path);
+  const merge = upload.mode === 'merge';
+  const planned = [];
+  const skipped = [];
+  for (const binder of binders) {
+    const current = existing.find((candidate) => candidate.name === binder.name);
+    const built = current && builtInto(current);
+    if (built) {
+      skipped.push(`${binder.name} holds the built deck ${built.slug}; it changes only with that deck`);
+      continue;
+    }
+    const collection = current ?? newBinder(binder.name, now, { format: upload.format, kind: binder.kind });
+    planned.push(await binderChange(db, userId, collection, binder.rows, { merge, format: upload.format }));
+  }
+  if (!merge) {
+    const named = new Set(binders.map((binder) => binder.name));
+    for (const collection of existing.filter((candidate) => !named.has(candidate.name) && !builtInto(candidate))) {
+      const item = await binderChange(db, userId, collection, [], { merge: false, format: collection.format });
+      planned.push({ ...item, change: { ...item.change, remove: true } });
+    }
+  }
+  if (listCopies) skipped.push(`${listCopies} copies in ManaBox lists, which are wishlists rather than owned cards`);
+  return summarized(planned, decks, { skipped });
+}
+
+const planUpload = (db, userId, upload, text, now) =>
+  (upload.target === 'collection' ? planWholeCollection : planBinder)(db, userId, upload, text, now);
+
+// Each touched binder's revision at preview, as uploads.base_revisions keeps it: null for a new binder.
+const revisionsOf = (changes) =>
+  Object.fromEntries(
+    changes.map(({ collection }) => [collection.name, collection.isNew ? null : (collection.revision ?? '')]),
+  );
 
 // ---------------------------------------------------------------------------------------------
 // Pages. Everything from the request, the file or the person's data is escaped.
 
 const lines = (text) => escapeHtml(text).replace(/\n/g, '<br>');
+const count = (number, noun) => `${number} ${noun}${number === 1 ? '' : 's'}`;
 
-function formPage(email, token, { collection = '', mode = 'merge', problem } = {}) {
-  const option = (value, label) =>
-    `<label><input type="radio" name="mode" value="${value}"${mode === value ? ' checked' : ''}> ${label}</label><br>`;
+function formPage(email, token, { target = 'binder', collection = '', mode = 'merge', problem } = {}) {
+  const radio = (name, value, current, label) =>
+    `<label><input type="radio" name="${name}" value="${value}"${current === value ? ' checked' : ''}> ${label}</label><br>`;
   return htmlPage(
-    'Upload to a binder',
-    `<h1>Upload to a binder</h1>
+    'Import cards',
+    `<h1>Import cards</h1>
 <p>Signed in through Cloudflare Access as <strong>${escapeHtml(email)}</strong>.</p>
 ${problem ? `<p class="warn">${lines(problem)}</p>` : ''}
 <form method="post" action="/upload" enctype="multipart/form-data">
@@ -160,30 +239,41 @@ ${problem ? `<p class="warn">${lines(problem)}</p>` : ''}
   <input type="hidden" name="token" value="${escapeHtml(token)}">
   <p><label>A ManaBox CSV export (.csv) or a text list (.txt), 5 MB at most<br>
     <input type="file" name="file" accept=".csv,.txt" required></label></p>
-  <p><label>Binder (a new name starts a new one)<br>
-    <input name="collection" value="${escapeHtml(collection)}" maxlength="120" required></label></p>
-  <p>${option('merge', 'Merge: add the file’s cards to the binder')}${option('replace', 'Replace: the binder becomes exactly the file')}</p>
+  <p>${radio('target', 'collection', target, 'The whole collection, from a ManaBox CSV export: one binder per ManaBox binder, with ManaBox decks as protected deck binders')}${radio('target', 'binder', target, 'One binder:')}
+  <label>Binder (a new name starts a new one)<br>
+    <input name="collection" value="${escapeHtml(collection)}" maxlength="120"></label></p>
+  <p>${radio('mode', 'merge', mode, 'Merge: add the file’s cards')}${radio('mode', 'replace', mode, 'Replace: the binder, or the whole collection, becomes exactly the file')}</p>
   <p><button>Preview</button></p>
 </form>`,
     { status: problem ? 400 : 200 },
   );
 }
 
-function previewPage(upload, { collection, cards, decks }) {
+const STATUS_LABELS = { added: 'new', removed: 'removed', changed: 'changed' };
+
+function binderSection({ collection, status, cards }, changes) {
   const signed = ({ name, change }) => `${change > 0 ? '+' : ''}${change} ${name}`;
+  const target = changes.find((change) => change.collection.name === collection)?.collection;
+  const labels = [
+    STATUS_LABELS[status],
+    target?.kind === 'deck' && 'deck',
+    target?.protected && 'protected: never used by other decks',
+  ].filter(Boolean);
   const shown = cards.slice(0, CHANGES_SHOWN).map((card) => `<li>${escapeHtml(signed(card))}</li>`);
   const more = cards.length > CHANGES_SHOWN ? `<li>and ${cards.length - CHANGES_SHOWN} more</li>` : '';
+  return `<h2>${escapeHtml(collection)} (${escapeHtml(labels.join(', '))})</h2><ul>${shown.join('')}${more}</ul>`;
+}
+
+function previewPage(upload, { changes, binders, cards, decks, skipped }) {
   const verb = upload.mode === 'merge' ? 'Merge' : 'Replace';
-  const protectedNote = collection.protected
-    ? '<p class="warn">This binder is protected: its cards are reported but never supply a deck.</p>'
-    : '';
+  const what = upload.target === 'collection' ? 'your whole collection' : upload.collection_name;
   return htmlPage(
-    'Upload preview',
-    `<h1>${verb} ${escapeHtml(collection.name)}${collection.isNew ? ' (new)' : ''}?</h1>
-<p>From ${escapeHtml(upload.file_name)}. ${cards.length ? `${cards.length} cards change:` : 'Nothing would change.'}</p>
-${cards.length ? `<ul>${shown.join('')}${more}</ul>` : ''}
+    'Import preview',
+    `<h1>${verb} ${escapeHtml(what)}?</h1>
+<p>From ${escapeHtml(upload.file_name)}. ${cards ? `${count(cards, 'card change')} in ${count(binders.length, 'binder')}:` : 'Nothing would change.'}</p>
+${binders.map((binder) => binderSection(binder, changes)).join('\n')}
 ${decks.length ? `<p>Decks naming changed cards: ${escapeHtml(decks.map(({ deck, cards: named }) => `${deck} (${named.join(', ')})`).join('; '))}</p>` : ''}
-${protectedNote}
+${skipped.length ? `<p class="warn">Left out: ${escapeHtml(skipped.join('; '))}.</p>` : ''}
 <form method="post" action="/upload">
   <input type="hidden" name="upload" value="${escapeHtml(upload.id)}">
   <input type="hidden" name="csrf" value="${escapeHtml(upload.csrf)}">
@@ -224,41 +314,50 @@ async function fileText(file) {
   return { text, format: FORMATS[extension] };
 }
 
+// The form's target, binder name and mode, defaulting to merging into a binder.
+function choices(form) {
+  const target = UPLOAD_TARGETS.includes(form.get('target')) ? form.get('target') : 'binder';
+  return {
+    target,
+    collection: target === 'binder' ? String(form.get('collection') ?? '').trim() : '',
+    mode: UPLOAD_MODES.includes(form.get('mode')) ? form.get('mode') : 'merge',
+  };
+}
+
 async function preview(request, env, { user, form, now, refuse }) {
   const token = String(form.get('token') ?? '');
   const link = await linkFor(env, user, token, now);
   if (link.problem) return refuse(link.problem);
   if (!(await useLink(env.DB, link.claims, MAX_UPLOAD_PREVIEWS, now))) return refuse('used up');
-  const collection = String(form.get('collection') ?? '').trim();
-  const mode = UPLOAD_MODES.includes(form.get('mode')) ? form.get('mode') : 'merge';
+  const { target, collection, mode } = choices(form);
   const file = form.get('file');
-  const upload = { id: crypto.randomUUID(), collection_name: collection, mode, csrf: randomToken() };
+  const upload = { id: crypto.randomUUID(), target, collection_name: collection, mode, csrf: randomToken() };
   let text;
   let planned;
   try {
-    if (!collection || collection.length > 120) throw new UploadProblem('Name the binder.');
+    if (target === 'binder' && (!collection || collection.length > 120)) throw new UploadProblem('Name the binder.');
     ({ text, format: upload.format } = await fileText(file));
     upload.file_name = file.name.slice(-120);
     planned = await planUpload(env.DB, user.id, upload, text, now);
   } catch (error) {
     if (error instanceof UploadProblem) {
-      return formPage(user.email, token, { collection, mode, problem: error.message });
+      return formPage(user.email, token, { target, collection, mode, problem: error.message });
     }
     throw error;
   }
   const rawKey = `uploads/${user.id}/${upload.id}`;
   await env.UPLOADS.put(rawKey, text, {
     httpMetadata: { contentType: 'text/plain; charset=utf-8' },
-    customMetadata: { collection, mode, format: upload.format },
+    customMetadata: { target, collection, mode, format: upload.format },
   });
-  const { collection: target } = planned;
   await env.DB.prepare(
-    `INSERT INTO uploads (id, user_id, collection_name, mode, format, file_name, size, raw_key, csrf, base_revision,
-       created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO uploads (id, user_id, target, collection_name, mode, format, file_name, size, raw_key, csrf,
+       base_revisions, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       upload.id,
       user.id,
+      target,
       collection,
       mode,
       upload.format,
@@ -266,14 +365,20 @@ async function preview(request, env, { user, form, now, refuse }) {
       file.size,
       rawKey,
       upload.csrf,
-      target.isNew ? null : (target.revision ?? ''),
+      JSON.stringify(revisionsOf(planned.changes)),
       new Date(now).toISOString(),
       now + PREVIEW_TTL_MS,
     )
     .run();
   await logAuthEvent(env.DB, request, 'upload_previewed', {
     email: user.email,
-    detail: { mode, format: upload.format, size: file.size, new: Boolean(target.isNew) },
+    detail: {
+      target,
+      mode,
+      format: upload.format,
+      size: file.size,
+      new: planned.changes.filter((change) => change.collection.isNew).length,
+    },
   });
   return previewPage(upload, planned);
 }
@@ -302,20 +407,24 @@ async function discard(request, env, { user, form, now, refuse }) {
   return donePage('Upload discarded', 'Nothing changed.');
 }
 
-// The collection must be as it was at preview: the guard uses that revision, and a collection that
-// didn't exist then must not exist now.
+// Every binder must be as it was at preview: the same binders touched, each guarded on its revision then,
+// and none that was new then may exist now.
 async function applyPreview(env, user, upload, now) {
   const object = await env.UPLOADS.get(upload.raw_key);
   if (!object) throw new UploadProblem('The uploaded file is missing.');
   const planned = await planUpload(env.DB, user.id, upload, await object.text(), now);
-  const { collection } = planned;
-  if (upload.base_revision === null && !collection.isNew) {
-    throw new UploadProblem(`${collection.name} was created since the preview.`);
+  const previewed = JSON.parse(upload.base_revisions ?? '{}');
+  const changedSince = new UploadProblem('Your binders changed since the preview.');
+  if (Object.keys(previewed).length !== planned.changes.length) throw changedSince;
+  for (const { collection } of planned.changes) {
+    if (!Object.hasOwn(previewed, collection.name)) throw changedSince;
+    const revision = previewed[collection.name];
+    if ((revision === null) !== Boolean(collection.isNew)) throw changedSince;
+    if (revision !== null) collection.revision = revision || null;
   }
-  if (upload.base_revision !== null) collection.revision = upload.base_revision || null;
   const note = `${upload.mode} from ${upload.file_name}`;
-  if (!(await applyCollectionChanges(env.DB, user.id, [planned.change], { source: 'upload', note, now }))) {
-    throw new UploadProblem(`${collection.name} changed since the preview.`);
+  if (!(await applyCollectionChanges(env.DB, user.id, planned.changes, { source: 'upload', note, now }))) {
+    throw changedSince;
   }
   return planned;
 }
@@ -330,18 +439,22 @@ async function approve(request, env, { user, form, now, refuse }) {
   } catch (error) {
     await finish('failed');
     if (!(error instanceof UploadProblem)) throw error;
-    await logAuthEvent(env.DB, request, 'upload_failed', { email: user.email, detail: { mode: upload.mode } });
+    await logAuthEvent(env.DB, request, 'upload_failed', {
+      email: user.email,
+      detail: { target: upload.target, mode: upload.mode },
+    });
     return donePage('Nothing changed', `${error.message} Ask Claude for a new upload link and try again.`);
   }
   await finish('applied');
   await logAuthEvent(env.DB, request, 'upload_applied', {
     email: user.email,
-    detail: { mode: upload.mode, format: upload.format, cards: planned.cards.length },
+    detail: { target: upload.target, mode: upload.mode, format: upload.format, cards: planned.cards },
   });
   const verb = upload.mode === 'merge' ? 'Merged into' : 'Replaced';
+  const what = upload.target === 'collection' ? 'your collection' : upload.collection_name;
   return donePage(
-    'Upload applied',
-    `${verb} ${planned.collection.name}: ${planned.cards.length} cards changed. Tell Claude it's done; collection_changes lists the changes.`,
+    'Import applied',
+    `${verb} ${what}: ${count(planned.cards, 'card change')} in ${count(planned.binders.length, 'binder')}. Tell Claude it's done; collection_changes lists the changes.`,
   );
 }
 
@@ -377,7 +490,11 @@ export async function handleUpload(request, env, config) {
       const token = new URL(request.url).searchParams.get('token');
       const link = await linkFor(env, user, token, now);
       if (link.problem) return refuse(link.problem);
-      return formPage(user.email, token, { collection: link.claims.collection });
+      return formPage(user.email, token, {
+        target: link.claims.target,
+        collection: link.claims.collection,
+        mode: link.claims.mode,
+      });
     }
     return await posted(request, env, config, { user, now, refuse });
   } catch (error) {

@@ -117,6 +117,38 @@ export function planAdd(entries, copies) {
   return { updates, inserts, deletes: [] };
 }
 
+// A binder's rows written fresh: its old rows deleted and the new ones inserted in order.
+export const planReplace = (entries, rows) => ({
+  updates: new Map(),
+  deletes: entries.map((entry) => entry.id),
+  inserts: rows.map((row, position) => ({
+    position,
+    name: row.name,
+    quantity: row.quantity,
+    scryfall_id: row.scryfallId,
+    set_code: row.set ?? null,
+    collector_number: row.collectorNumber ?? null,
+    finish: row.finish,
+    is_proxy: row.isProxy ? 1 : 0,
+    in_deck_binder: row.inDeckBinder ? 1 : 0,
+    source_record: row.sourceRecord ?? null,
+  })),
+});
+
+// A replacement's log entries: the net change per printing and finish, not every row rewritten.
+export function replaceEvents(entries, rows) {
+  const net = new Map();
+  const count = (name, scryfallId, finish, change) => {
+    const key = `${scryfallId}|${finish}|${name}`;
+    const event = net.get(key) ?? { name, scryfallId, finish, change: 0 };
+    event.change += change;
+    net.set(key, event);
+  };
+  for (const entry of entries) count(entry.name, entry.scryfall_id, entry.finish, -entry.quantity);
+  for (const row of rows) count(row.name, row.scryfallId, row.finish, row.quantity);
+  return [...net.values()].filter((event) => event.change);
+}
+
 // The row changes that take copies out: takes is [{ entry, quantity }], each from one row. A row left
 // with none is deleted.
 export function planRemove(takes) {
@@ -275,6 +307,19 @@ export async function applyCollectionChanges(db, userId, changes, { source, note
           deck.slug,
           ...guard,
         ),
+    );
+  }
+  // A new binder's guard creates it. If any other guard failed, the change doesn't apply, so the binders it
+  // created are deleted again rather than left behind empty.
+  const created = changes.filter(({ collection }) => collection.isNew).map(({ collection }) => collection.id);
+  if (created.length) {
+    statements.push(
+      db
+        .prepare(
+          `DELETE FROM collections WHERE user_id = ? AND id IN (SELECT value FROM json_each(?)) AND revision = ?
+           AND NOT (${applies})`,
+        )
+        .bind(userId, JSON.stringify(created), revision, ...guard),
     );
   }
   // Deleting a collection lowers the guard count, so these come last.

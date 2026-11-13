@@ -16,7 +16,7 @@ Protected binders (precons, built decks) are reported but never supply a deck's 
 Size broad questions with search_cards count or group_by before listing cards.
 For a multi-step job (brewing, surveying, scouting commanders, reviewing or upgrading a deck), read its playbook with get_workflow first: ${WORKFLOWS.map((workflow) => workflow.name).join(', ')}.
 Decks are saved with create_deck and update_deck (import_deck copies one from an Archidekt link or a pasted list); ask before big rewrites.
-Change binders (add_cards, remove_cards, or get_upload_link for a whole file such as a fresh ManaBox export) only when the person says their physical cards changed, and never move cards between binders to make a deck pass.
+Change binders (add_cards, remove_cards, import_binder, or import_collection for a fresh ManaBox export of everything) only when the person says their physical cards changed, and never move cards between binders to make a deck pass. import_deck brings in a deck list.
 build_deck, teardown_deck and swap_deck move a deck's real cards: show the plan first, and apply it only once the person says they've done it.
 Purchase prices are private: include them in a download only when the person asks.`;
 

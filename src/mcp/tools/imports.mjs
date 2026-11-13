@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { normalizeName } from '../../core/card.mjs';
 import { OutboundRefused, boundedJson, outboundFetch } from '../../outbound.mjs';
 import { resolvedRows } from './collection-writes.mjs';
-import { createDeckLines, createSchema } from './deck-writes.mjs';
+import { loadDeckForUpdate } from '../../storage/decks.mjs';
+import { createDeckLines, createSchema, updateDeckLines } from './deck-writes.mjs';
 import { slug } from './decks.mjs';
 import { ToolError, textResult } from './shared.mjs';
 
@@ -55,9 +56,17 @@ const schema = z
       .describe(
         'A pasted deck list, as Moxfield, Archidekt and Arena export it, with Commander/Deck/Sideboard headings',
       ),
+    mode: z
+      .enum(['new', 'merge', 'replace'])
+      .default('new')
+      .describe(
+        'new (default): a new draft deck; merge: add the cards to the draft deck slug names; replace: that draft’s cards become the import’s',
+      ),
     slug: slug
       .optional()
-      .describe('The new deck’s slug; from the Archidekt deck’s name when left out, required for a list'),
+      .describe(
+        'The deck’s slug. For a new deck, from the Archidekt deck’s name when left out (required for a list); for merge and replace, the existing deck',
+      ),
     name: z.string().min(1).max(200).optional(),
     format: z
       .enum(['commander', 'custom-dollar-brawl', 'casual-60'])
@@ -219,12 +228,39 @@ function createArgs(args, source) {
   return parsed.data;
 }
 
+// update_deck's operations for merging the imported cards into a deck, or replacing its cards with them.
+// Merging keeps the deck's commanders, setting them only when it has none; replacing takes the import's,
+// if it names any.
+function updateOps(existing, imported, replace) {
+  const ops = replace ? existing.mainboard.map((entry) => ({ op: 'remove', name: entry.name })) : [];
+  ops.push(...imported.mainboard.map((entry) => ({ op: 'add', quantity: 1, ...entry })));
+  const names = imported.commanders.map((entry) => entry.name);
+  if (names.length && (replace || !existing.commanders.length)) ops.push({ op: 'set_commanders', names });
+  return ops;
+}
+
+async function intoDeck(args, imported, { db, user, now }) {
+  if (!args.slug) throw new ToolError(`Pass slug: the deck to ${args.mode}`);
+  const loaded = await loadDeckForUpdate(db, user.id, args.slug);
+  if (!loaded) throw new ToolError(`No deck named ${args.slug}; list_decks shows yours`);
+  if (!imported.mainboard.length && !imported.commanders.length) throw new ToolError('The import has no cards');
+  const ops = updateOps(loaded.deck, imported, args.mode === 'replace');
+  const lines = await updateDeckLines({ slug: args.slug, ops }, { db, user, now });
+  const kept = imported.commanders.length && args.mode === 'merge' && loaded.deck.commanders.length;
+  if (kept) lines.push('Kept the deck’s commanders; replace takes the import’s.');
+  return lines;
+}
+
 async function importDeck(args, { db, user, env, now }) {
   if (Boolean(args.url) === Boolean(args.list)) throw new ToolError('Pass either url or list');
   const source = args.url ? fromArchidekt(await fetchArchidekt(env, user, args.url)) : await fromList(db, args.list);
-  const lines = await createDeckLines(createArgs(args, source), { db, user, now });
+  const context = { db, user, now };
+  const lines =
+    args.mode === 'new'
+      ? await createDeckLines(createArgs(args, source), context)
+      : await intoDeck(args, withCommanders(source, args.commanders), context);
   if (source.leftOut) lines.push(`Left out ${source.leftOut} sideboard, maybeboard and companion cards.`);
-  lines.push('Its primer is a placeholder; check_deck shows what the deck still needs.');
+  if (args.mode === 'new') lines.push('Its primer is a placeholder; check_deck shows what the deck still needs.');
   return textResult(lines);
 }
 
@@ -233,7 +269,7 @@ export const IMPORT_TOOLS = [
     name: 'import_deck',
     title: 'Import a deck',
     description:
-      'Create a draft deck from a public Archidekt deck link, or from a pasted list (Moxfield, Archidekt or Arena text export; Moxfield links can’t be fetched). Commanders come from the list’s Commander section or [Commander] category, or from commanders; sideboard and maybeboard cards are left out. Card names are checked against the card data.',
+      'Import a deck from a public Archidekt deck link, or from a pasted list (Moxfield, Archidekt, Arena or ManaBox text export; Moxfield links can’t be fetched): as a new draft deck (mode new), or merged into or replacing the cards of an existing one (mode merge or replace). Built decks keep their cards; swap_deck changes them. Commanders come from the list’s Commander section or [Commander] category, or from commanders; sideboard and maybeboard cards are left out. Card names are checked against the card data.',
     schema,
     annotations: { readOnlyHint: false, openWorldHint: true, destructiveHint: false, idempotentHint: false },
     handler: importDeck,

@@ -97,8 +97,8 @@ async function saved(db, userId, change, context) {
   }
 }
 
-// The changed cards' decks, as collection_changes reports them.
-function deckLines(events, decks) {
+// The changed cards' decks, as collection_changes reports them. import_binder reports them too.
+export function deckLines(events, decks) {
   const changes = [{ cards: events.map(({ name, change }) => ({ name, change })) }];
   const naming = decksNaming(
     changes,
