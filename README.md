@@ -68,7 +68,9 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   can't be fetched, since Moxfield refuses requests that don't come from a browser. Commander sections and
   Archidekt's Commander category become commanders, and sideboard and maybeboard cards are left out. `mode: new`
   saves a draft as `draft_deck` does; `merge` and `replace` change an existing draft's cards through
-  `update_deck` (merging keeps its commanders). Built decks' cards change only through `swap_deck`.
+  `update_deck` (merging keeps its commanders). Built decks' cards change only through `swap_deck`. With
+  `binder`, a deck binder (such as a ManaBox deck) becomes a built deck whose cards are that binder; without
+  `commanders`, its only card that can be a commander is taken, and otherwise the candidates are listed.
   - **Concurrent edits:** a save is refused if the deck changed since it was read, so two edits can't
     silently overwrite each other.
 - **`add_cards`**, **`remove_cards`** and **`collection_changes`**: change one binder from a short text list
@@ -110,7 +112,7 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   - **`import_binder`**: a pasted list (Moxfield, Archidekt, Arena or ManaBox text) merged into or replacing
     one binder, or without one, a link to `/upload` for a ManaBox CSV or text file for that binder.
   - **`import_deck`** (above): a deck from Archidekt or a pasted list, as a new draft or merged into or
-    replacing an existing draft's cards.
+    replacing an existing draft's cards, or a deck binder saved as a built deck.
 - **The upload page** (`/upload`): the person picks a file (5 MB at most), the whole collection or one binder,
   and merge or replace.
   - **The link** is signed with `UPLOAD_SIGNING_KEY`, lasts 10 minutes and allows three previews. Access guards
@@ -125,8 +127,8 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   - **Large files:** rows are written as JSON chunks through SQLite's `json_each`, so thousands of rows take a
     handful of D1 statements.
 - **`get_workflow`**: mtg-manager's skills as playbooks rewritten for these tools (`src/mcp/workflows/`):
-  `new-deck`, `collection-survey`, `commander-scout`, `deck-review`, `deck-upgrades`, `deckbuilding-strategy` and
-  `formats`. Each is also an MCP prompt, and the server instructions point Claude to them.
+  `new-deck`, `collection-survey`, `commander-scout`, `deck-review`, `deck-upgrades`, `bracket-check`,
+  `deckbuilding-strategy` and `formats`. Each is also an MCP prompt, and the server instructions point Claude to them.
 
 How the tools handle safety and input:
 

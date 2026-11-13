@@ -2,13 +2,15 @@
 // Moxfield refuses requests that don't come from a browser, so its decks come in as their text export.
 // Either way the cards are checked against the card data and the deck is saved as draft_deck saves it.
 import { z } from 'zod';
-import { normalizeName } from '../../core/card.mjs';
+import { canBeCommander, normalizeName } from '../../core/card.mjs';
 import { OutboundRefused, boundedJson, outboundFetch } from '../../outbound.mjs';
 import { resolvedRows } from './collection-writes.mjs';
-import { loadDeckForUpdate } from '../../storage/decks.mjs';
+import { listCollections } from '../../storage/collections.mjs';
+import { entriesFor } from '../../storage/collection-writes.mjs';
+import { loadAllDecks, loadDeckForUpdate } from '../../storage/decks.mjs';
 import { draftDeckLines, draftSchema, updateDeckLines } from './deck-writes.mjs';
 import { slug } from './decks.mjs';
-import { ToolError, textResult } from './shared.mjs';
+import { ToolError, personalIndex, textResult } from './shared.mjs';
 
 const MAX_LIST_CHARS = 20_000;
 const ARCHIDEKT_URL = /^https:\/\/(?:www\.)?archidekt\.com\/decks\/(\d{1,12})(?:[/?#]|$)/;
@@ -56,6 +58,12 @@ const schema = z
       .describe(
         'A pasted deck list, as Moxfield, Archidekt and Arena export it, with Commander/Deck/Sideboard headings',
       ),
+    binder: z
+      .string()
+      .min(1)
+      .max(120)
+      .optional()
+      .describe('A deck binder from collection_summary, such as a ManaBox deck: saved as a built deck of its cards'),
     mode: z
       .enum(['new', 'merge', 'replace'])
       .default('new')
@@ -65,7 +73,7 @@ const schema = z
     slug: slug
       .optional()
       .describe(
-        'The deck’s slug. For a new deck, from the Archidekt deck’s name when left out (required for a list); for merge and replace, the existing deck',
+        'The deck’s slug. For a new deck, from the Archidekt deck’s or binder’s name when left out (required for a list); for merge and replace, the existing deck',
       ),
     name: z.string().min(1).max(200).optional(),
     format: z
@@ -251,10 +259,70 @@ async function intoDeck(args, imported, { db, user, now }) {
   return lines;
 }
 
+// The person's deck binder by name, refused when it's an ordinary binder or already a built deck's.
+async function deckBinder(args, { db, user }) {
+  if (args.mode !== 'new') throw new ToolError('A binder becomes a new built deck; leave mode out');
+  const [binders, decks] = await Promise.all([listCollections(db, user.id), loadAllDecks(db, user.id)]);
+  const binder = binders.find((candidate) => candidate.name === args.binder);
+  if (!binder) throw new ToolError(`No binder named ${args.binder}; collection_summary lists them`);
+  if (binder.kind !== 'deck') throw new ToolError(`${args.binder} isn’t a deck binder; collection_summary marks them`);
+  const builtAs = decks.find(({ deck }) => deck.collection_destination === binder.path);
+  if (builtAs) throw new ToolError(`${args.binder} is already the built deck ${builtAs.slug}`);
+  return binder;
+}
+
+// A binder's rows as a deck's mainboard, with the cards that could be its commander.
+function binderCards(binder, entries, index) {
+  // A binder named precons/Draconic Destruction names its deck Draconic Destruction.
+  const deck = { name: binder.name.split('/').at(-1), commanders: [], mainboard: [], leftOut: 0, proxies: false };
+  const candidates = new Set();
+  for (const entry of entries) {
+    const card = entry.scryfall_id && index.byId.get(entry.scryfall_id);
+    addCopies(deck.mainboard, card?.name ?? entry.name, entry.quantity);
+    if (card && canBeCommander(card)) candidates.add(card.name);
+    if (entry.is_proxy) deck.proxies = true;
+  }
+  return { deck, candidates: [...candidates] };
+}
+
+// A deck binder's cards as a deck: a ManaBox deck, already built, whose binder becomes the deck's own. Its
+// commanders are the ones named, or its only card that can be a commander.
+async function fromBinder(args, { db, user }) {
+  const binder = await deckBinder(args, { db, user });
+  const entries = await entriesFor(db, user.id, binder.id);
+  if (!entries.length) throw new ToolError(`${args.binder} is empty`);
+  const { index } = await personalIndex(db, user.id, { names: entries.map((entry) => entry.name) });
+  const { deck, candidates } = binderCards(binder, entries, index);
+  if (args.commanders || (args.format ?? 'commander') !== 'commander') return { deck, path: binder.path };
+  if (candidates.length !== 1) {
+    const which = candidates.length ? `; its cards that can be one: ${candidates.join(', ')}` : '';
+    throw new ToolError(`Name the commanders of ${args.binder}${which}`);
+  }
+  return { deck: withCommanders(deck, candidates), path: binder.path, guessed: candidates[0] };
+}
+
+async function importBinderDeck(args, context) {
+  const { deck, path, guessed } = await fromBinder(args, context);
+  const parsed = createArgs({ ...args, format: args.format ?? 'commander' }, deck);
+  const lines = await draftDeckLines({ ...parsed, allow_proxies: parsed.allow_proxies || deck.proxies }, context, {
+    builtInto: path,
+  });
+  if (guessed) lines.push(`Took ${guessed}, its only card that can be a commander, as the commander.`);
+  if (deck.proxies) lines.push(`${args.binder} holds proxies, so the deck allows them.`);
+  lines.push(`Its cards are the deck binder ${args.binder}; swap_deck changes them, and teardown_deck takes it apart.`);
+  return lines;
+}
+
 async function importDeck(args, { db, user, env, now }) {
-  if (Boolean(args.url) === Boolean(args.list)) throw new ToolError('Pass either url or list');
-  const source = args.url ? fromArchidekt(await fetchArchidekt(env, user, args.url)) : await fromList(db, args.list);
+  if ([args.url, args.list, args.binder].filter(Boolean).length !== 1) {
+    throw new ToolError('Pass one of url, list or binder');
+  }
   const context = { db, user, now };
+  if (args.binder) {
+    const lines = await importBinderDeck(args, context);
+    return textResult([...lines, 'Its primer is a placeholder; check_deck shows what the deck still needs.']);
+  }
+  const source = args.url ? fromArchidekt(await fetchArchidekt(env, user, args.url)) : await fromList(db, args.list);
   const lines =
     args.mode === 'new'
       ? await draftDeckLines(createArgs(args, source), context)
@@ -269,7 +337,7 @@ export const IMPORT_TOOLS = [
     name: 'import_deck',
     title: 'Import a deck',
     description:
-      'Import a deck from a public Archidekt deck link, or from a pasted list (Moxfield, Archidekt, Arena or ManaBox text export; Moxfield links can’t be fetched): as a new draft deck (mode new), or merged into or replacing the cards of an existing one (mode merge or replace). Built decks keep their cards; swap_deck changes them. Commanders come from the list’s Commander section or [Commander] category, or from commanders; sideboard and maybeboard cards are left out. Card names are checked against the card data.',
+      'Import a deck from a public Archidekt deck link, or from a pasted list (Moxfield, Archidekt, Arena or ManaBox text export; Moxfield links can’t be fetched): as a new draft deck (mode new), or merged into or replacing the cards of an existing one (mode merge or replace). A deck binder (binder), such as a ManaBox deck, becomes a built deck whose cards are that binder; without commanders, its only card that can be a commander is taken. Built decks keep their cards; swap_deck changes them. Commanders come from the list’s Commander section or [Commander] category, or from commanders; sideboard and maybeboard cards are left out. Card names are checked against the card data.',
     schema,
     annotations: { readOnlyHint: false, openWorldHint: true, destructiveHint: false, idempotentHint: false },
     handler: importDeck,

@@ -5,11 +5,12 @@ import { loadDeckForUpdate } from '../../src/storage/decks.mjs';
 import { ID, OWNER, callTool, loadFixtureCards, seedPeople } from './tool-fixtures.mjs';
 
 let owner;
+let other;
 
 beforeAll(loadFixtureCards);
 
 beforeEach(async () => {
-  ({ owner } = await seedPeople());
+  ({ owner, other } = await seedPeople());
 });
 
 const stored = async (slug) => {
@@ -116,10 +117,10 @@ describe('import_deck from a list', () => {
       /^list: line 1: no card named Sol Rng; did you mean Sol Ring\?/,
     );
     expect((await callTool(owner, 'import_deck', { list: '1 Sol Ring' })).text).toMatch(/^Pass slug/);
-    expect((await callTool(owner, 'import_deck', {})).text).toBe('Pass either url or list');
+    expect((await callTool(owner, 'import_deck', {})).text).toBe('Pass one of url, list or binder');
     expect(
       (await callTool(owner, 'import_deck', { list: '1 Sol Ring', url: 'https://archidekt.com/decks/1' })).text,
-    ).toBe('Pass either url or list');
+    ).toBe('Pass one of url, list or binder');
     expect((await callTool(owner, 'import_deck', { list: '1 Sol Ring', slug: 'bears' })).text).toMatch(
       /^A deck named bears already exists/,
     );
@@ -208,5 +209,56 @@ describe('import_deck from Archidekt', () => {
       'Archidekt sent a deck in a shape this server doesn’t recognize',
     );
     expect(urls).toEqual(['https://archidekt.com/api/decks/1/', 'https://archidekt.com/api/decks/2/']);
+  });
+});
+
+describe('import_deck from a deck binder', () => {
+  const ownerId = async () => (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(OWNER).first()).id;
+  // ManaBox_Collection as a ManaBox deck: Sol Ring, Llanowar Elves and Ayula, its one possible commander.
+  const makeDeckBinder = async () =>
+    env.DB.prepare(
+      "UPDATE collections SET kind = 'deck', protected = 1 WHERE user_id = ? AND name = 'ManaBox_Collection'",
+    )
+      .bind(await ownerId())
+      .run();
+
+  it('saves the binder as a built deck whose cards are that binder', async () => {
+    await makeDeckBinder();
+    const { text, isError } = await callTool(owner, 'import_deck', { binder: 'ManaBox_Collection' });
+    expect(isError).toBe(false);
+    expect(text.split('\n')).toEqual([
+      'Created manabox-collection (commander, built). 6 cards: 1 commanders, 5 mainboard.',
+      'lowest_legal_bracket is now 3',
+      'Took Ayula, Queen Among Bears, its only card that can be a commander, as the commander.',
+      'Its cards are the deck binder ManaBox_Collection; swap_deck changes them, and teardown_deck takes it apart.',
+      'Its primer is a placeholder; check_deck shows what the deck still needs.',
+    ]);
+    const deck = await stored('manabox-collection');
+    expect(deck).toMatchObject({
+      status: 'built',
+      collection_destination: 'collections/ManaBox_Collection.csv',
+      commanders: [{ name: 'Ayula, Queen Among Bears', quantity: 1 }],
+    });
+    expect(deck.mainboard.map((entry) => [entry.name, entry.quantity])).toEqual([
+      ['Sol Ring', 2],
+      ['Llanowar Elves', 3],
+    ]);
+    expect((await callTool(owner, 'import_deck', { binder: 'ManaBox_Collection', slug: 'again' })).text).toBe(
+      'ManaBox_Collection is already the built deck manabox-collection',
+    );
+  });
+
+  it('refuses ordinary binders, other modes, and other people’s binders', async () => {
+    expect((await callTool(owner, 'import_deck', { binder: 'ManaBox_Collection' })).text).toBe(
+      'ManaBox_Collection isn’t a deck binder; collection_summary marks them',
+    );
+    await makeDeckBinder();
+    expect(
+      (await callTool(owner, 'import_deck', { binder: 'ManaBox_Collection', mode: 'merge', slug: 'bears' })).text,
+    ).toBe('A binder becomes a new built deck; leave mode out');
+    expect((await callTool(other, 'import_deck', { binder: 'ManaBox_Collection' })).text).toBe(
+      'No binder named ManaBox_Collection; collection_summary lists them',
+    );
+    expect(await stored('manabox-collection')).toBeUndefined();
   });
 });
