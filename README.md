@@ -40,7 +40,8 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   - **Outbound requests** go through `src/outbound.mjs`: HTTPS to `json.edhrec.com` and `archidekt.com` only,
     each redirect checked against the same list, and responses capped at 4 MB. No tool fetches an arbitrary URL.
 - **`list_decks`**, **`show_deck`**, **`deck_stats`**, **`check_deck`** and **`export_deck`** (`deck:show`,
-  `deck:stats`, `deck:check`, `deck:export`): the person's decks.
+  `deck:stats`, `deck:check`, `deck:export`): the person's decks. `export_deck` also has a `manabox` format
+  (Arena's layout, which ManaBox's deck import reads).
 - **`verify_deck`**, **`deck_candidates`** and **`deck_upgrades`** (`deck:verify`, `deck:candidates`,
   `deck:upgrades`): whether a deck is ready to hand off, the strong cards it leaves out, and what it still needs
   to buy against its budget. With no decklist files on the server, `verify_deck` skips that check.
@@ -85,7 +86,9 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   - **One transaction:** every touched collection and the deck itself are guarded by revision in one D1 batch,
     so a move applies whole or not at all, and the log records it under the tool's name.
 - **`get_download_link`**: a link to one collection, or every collection as a zip with a `manifest.json` or
-  (`combine`) as one file whose `Binder Name` column names each row's collection, as a ManaBox CSV (every column it was imported with, so it reads back), a Moxfield CSV or a text list. Purchase
+  (`combine`) as one file, as a text list (the default, since ManaBox imports text as a collection or a deck),
+  a ManaBox CSV (every column it was imported with, so it reads back; combined, its `Binder Name` column names
+  each row's collection) or a Moxfield CSV. Purchase
   prices are left out unless asked for. The link (`/download?token=...`) is HMAC-signed with
   `DOWNLOAD_SIGNING_KEY` (`src/links.mjs`), expires after 15 minutes and works three times, counted in D1's
   `link_uses`. Cloudflare Access guards it, and the Access identity must be the link's own person. The file is

@@ -21,9 +21,9 @@ const schema = z
       .describe(`A collection's name from collection_summary, or "${ALL_COLLECTIONS}" for every collection`),
     format: z
       .enum(DOWNLOAD_FORMATS)
-      .default('manabox_csv')
+      .default('text')
       .describe(
-        'manabox_csv (default; keeps every ManaBox column), moxfield_csv (Moxfield collection import) or text (a card list)',
+        'text (default: a card list ManaBox, Moxfield and Arena import, as a collection or a deck), manabox_csv (keeps every ManaBox column, such as condition and language) or moxfield_csv (Moxfield collection import)',
       ),
     combine: z
       .boolean()
@@ -93,7 +93,7 @@ export const DOWNLOAD_TOOLS = [
     name: 'get_download_link',
     title: 'Download link',
     description:
-      'A link, valid for 15 minutes, that downloads one of the person’s collections, or all of them as a zip or (combine) as one file, as a ManaBox CSV, Moxfield CSV or text list. Give the person the link to open; purchase prices are left out unless they ask for them.',
+      'A link, valid for 15 minutes, that downloads one of the person’s collections, or all of them as a zip or (combine) as one file, as a text list (the default, which ManaBox imports), ManaBox CSV or Moxfield CSV. Give the person the link to open; purchase prices are left out unless they ask for them.',
     schema,
     handler: getDownloadLink,
   },

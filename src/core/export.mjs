@@ -45,7 +45,7 @@ function plainText(deck) {
   return `${commanderSection}${render(deck.mainboard)}${extraSections}\n`;
 }
 
-// MTG Arena's layout, which Moxfield accepts as a pasted list.
+// MTG Arena's layout, which Moxfield and ManaBox accept as a pasted list.
 function moxfield(deck, printingOf) {
   const line = (entry) => `${entry.quantity} ${entry.name}${printingSuffix(printingOf(entry))}`;
   const section = (heading, entries) => [heading, ...entries.map(line)].join('\n');
@@ -95,7 +95,7 @@ function archidekt(deck, printingOf) {
   return `${lines.join('\n')}\n`;
 }
 
-const EXPORT_FORMATS = { text: plainText, moxfield, archidekt };
+const EXPORT_FORMATS = { text: plainText, moxfield, archidekt, manabox: moxfield };
 
 export const EXPORT_FORMAT_NAMES = Object.keys(EXPORT_FORMATS);
 
@@ -103,6 +103,7 @@ export const PASTE_HINTS = {
   text: 'Plain list; most deck sites accept it, but commander handling varies.',
   moxfield: 'In Moxfield, create a deck and paste into Import, or replace an existing list with Bulk Edit.',
   archidekt: "In Archidekt, open a deck's Import menu, paste, and save.",
+  manabox: 'In ManaBox, use the import button on the Decks screen and paste the list as text.',
 };
 
 export function exportDeck(deck, { format = 'text', printingOf = () => null } = {}) {
