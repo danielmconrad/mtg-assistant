@@ -9,8 +9,8 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 logic is ported to `src/core`, each person's collections and decks live in D1, and these read-only tools are
 live: `search_cards`, `get_cards`, `collection_summary`, `rank_commanders`, `list_decks`, `show_deck`,
 `deck_stats`, `check_deck`, `export_deck`, `get_download_link`, `get_workflow` and `whoami`. Milestone 2 (writes)
-is under way: decks can be created, edited, verified and priced, and collections changed by text list;
-physical-deck moves and the upload page come next.
+is under way: decks can be created, edited, verified and priced, collections changed by text list, and decks
+built, torn down and swapped physically; the upload page comes next.
 
 ## Tools
 
@@ -47,7 +47,7 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   - **Every save** is validated against the deck schema (and the upgrades must still apply), records
     `lowest_legal_bracket` from the cards, and removes a `plays_like_bracket` judged for an older card list,
     as `deck:files` did.
-  - **Built decks** keep their card list, and only the physical-deck tools will make a deck built.
+  - **Built decks** keep their card list; only `build_deck` makes a deck built, and `swap_deck` changes its list.
   - **Concurrent edits:** a save is refused if the deck changed since it was read, so two edits can't
     silently overwrite each other.
 - **`add_cards`**, **`remove_cards`** and **`collection_changes`**: change one collection from a short text list
@@ -62,6 +62,17 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
     so two changes at once can't both apply to the same starting point.
   - **The log:** each change writes one `collection_events` row per card, with the tool, an optional note and
     a batch ID. Purchase prices are never logged.
+- **`build_deck`**, **`teardown_deck`** and **`swap_deck`** (`deck:build`, `deck:teardown`, `deck:swap` on a
+  built deck): move a deck's real cards when the person says they've sleeved, unsleeved or swapped them.
+  - **Plan first:** each shows the copies it would move and changes nothing unless called with `apply: true`.
+  - **Building** needs the deck to pass `check_deck` with non-proxy copies. It takes them with mtg-manager's
+    `planBuild` (pinned printing, then nonfoil, then the most-held printing) into a new text list of its own,
+    `decks/<slug>` by default, and names drafts that may come up short. Untracked basics are listed by name.
+  - **Tearing down** returns the list's cards to `to` (lands to `lands_to`), deletes the list and makes the deck
+    a draft again. **Swapping** moves each in card from the other collections into the list and each out card
+    back to `to`, recording the swap as `update_deck` does; the swapped deck must still pass `check_deck`.
+  - **One transaction:** every touched collection and the deck itself are guarded by revision in one D1 batch,
+    so a move applies whole or not at all, and the log records it under the tool's name.
 - **`get_download_link`**: a link to one collection, or every collection as a zip with a `manifest.json`, as a
   ManaBox CSV (every column it was imported with, so it reads back), a Moxfield CSV or a text list. Purchase
   prices are left out unless asked for. The link (`/download?token=...`) is HMAC-signed with
