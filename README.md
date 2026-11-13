@@ -5,9 +5,36 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 [mtg-manager](https://github.com/danielmconrad/mtg-manager) CLI with a Cloudflare Worker at
 `https://mtg-assistant.conrad.tools`.
 
-**Status:** step 4 of the plan. The server signs people in and serves one tool, `whoami`. Every card on
-Scryfall is loaded into D1 nightly, mtg-manager's logic is ported to `src/core`, and each person's collections
-and decks live in D1, migrated from mtg-manager. The Milestone 1 tools come next.
+**Status:** Milestone 1 in progress (step 5a). Every card on Scryfall is loaded into D1 nightly, mtg-manager's
+logic is ported to `src/core`, each person's collections and decks live in D1, and these read-only tools are
+live: `search_cards`, `get_cards`, `collection_summary`, `list_decks`, `show_deck`, `deck_stats`, `check_deck`,
+`export_deck` and `whoami`. Commander ranking, download links and the workflow playbooks come next.
+
+## Tools
+
+Each tool is mtg-manager's command of the same purpose, and answers with that command's text output:
+
+- **`search_cards`** (`collection:search`): searches the person's collection by default. It can also search
+  cards they don't own (`scope: unowned`) or every card (`scope: all`), using the same filters, `count` and
+  `group_by`. Unowned and all-cards searches are narrowed in SQL first, by a filter that may only keep more
+  cards than the search would, never fewer. A test checks that on 1,152 filter combinations. Mtg-manager's own
+  filters then decide, and a search that would still load over 4,000 cards asks for narrower filters.
+- **`get_cards`** (`card:show`): shows any card by name, owned or not. Misspellings get suggestions from every
+  card's name.
+- **`collection_summary`** (`collection:check`): lists the person's collections, how fresh the card data is, and
+  any rows that match no printing.
+- **`list_decks`**, **`show_deck`**, **`deck_stats`**, **`check_deck`** and **`export_deck`** (`deck:show`,
+  `deck:stats`, `deck:check`, `deck:export`): the person's decks.
+
+How the tools handle safety and input:
+
+- **The user:** every tool takes the user from the verified token, never from its arguments.
+- **Argument checks:** arguments are validated strictly, with unknown fields refused and every string and list
+  bounded. Request bodies over 64 KB are refused.
+- **Regexes:** user regexes are capped at 200 characters, and nested quantifiers and backreferences are
+  refused.
+- **Isolation:** `tests/worker/tools.test.mjs` calls every tool as a second person and requires that they see
+  none of the first person's data. It fails if a tool is added without that check.
 
 ## How it fits together
 

@@ -12,6 +12,8 @@ import { matchRoute } from './routes.mjs';
 
 const ACCESS_TOKEN_TTL = 60 * 60;
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60;
+// The largest MCP request body accepted: tool arguments are small, so anything bigger is refused.
+const MAX_MCP_BODY_BYTES = 64 * 1024;
 // Unused registered clients expire; one in use is renewed by the library. Longer than a grant lasts, so a
 // working connection never loses its client.
 const CLIENT_REGISTRATION_TTL = 60 * 24 * 60 * 60;
@@ -42,7 +44,15 @@ const mcpHandler = {
       });
     }
     if (await overLimit(env, 'RL_MCP', user.id)) return tooManyRequests();
-    return handleMcpRequest(request, { id: user.id, email: user.email });
+    if (Number(request.headers.get('Content-Length') ?? 0) > MAX_MCP_BODY_BYTES) {
+      return new Response('Request too large', { status: 413 });
+    }
+    const body = request.method === 'POST' ? await request.text() : null;
+    if (body !== null && new TextEncoder().encode(body).length > MAX_MCP_BODY_BYTES) {
+      return new Response('Request too large', { status: 413 });
+    }
+    const bounded = body === null ? request : new Request(request, { body });
+    return handleMcpRequest(bounded, { id: user.id, email: user.email }, env);
   },
 };
 

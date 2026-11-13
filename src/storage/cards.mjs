@@ -21,15 +21,36 @@ export const identityLetters = (mask) => COLOR_BITS.filter(([, bit]) => mask & b
 // Prices are stored as numbers; the card model keeps Scryfall's strings ("1.50"), which upgrades.mjs checks.
 const priceText = (value) => (value === null || value === undefined ? null : Number(value).toFixed(2));
 
-const SELECT = `
-  SELECT p.id, p.oracle_id, p.name AS printing_name, p.set_code, p.collector_number, p.rarity, p.border_color,
-         p.set_type, p.flavor_name, p.is_default, p.overrides, p.printing_legalities,
-         c.name, c.front_name, c.mana_cost, c.mana_value, c.type_line, c.front_type, c.oracle_text, c.keywords,
-         c.color_identity, c.produced_mana, c.legalities, c.game_changer, c.edhrec_rank,
-         pr.usd, pr.usd_foil, pr.usd_etched, pr.eur
-  FROM printings p
-  JOIN cards c ON c.oracle_id = p.oracle_id
-  LEFT JOIN prices pr ON pr.printing_id = p.id`;
+// Cards and their printings are fetched separately and joined here: a joined query would repeat each
+// card's rules text once per printing, several times the data for a collection's worth of cards.
+const CARD_COLUMNS = `c.oracle_id, c.name, c.front_name, c.mana_cost, c.mana_value, c.type_line, c.front_type,
+  c.oracle_text, c.keywords, c.color_identity, c.produced_mana, c.legalities, c.game_changer, c.edhrec_rank`;
+const PRINTING_COLUMNS = `p.id, p.oracle_id, p.name AS printing_name, p.set_code, p.collector_number, p.rarity,
+  p.border_color, p.set_type, p.flavor_name, p.is_default, p.overrides, p.printing_legalities,
+  pr.usd, pr.usd_foil, pr.usd_etched, pr.eur`;
+
+// Every printing of every card matching condition (SQL on cards c), as one row per printing with its
+// card's fields, in the shape toCardModel reads.
+async function rowsWhere(db, condition, params = []) {
+  const [cards, printings] = await Promise.all([
+    db
+      .prepare(`SELECT ${CARD_COLUMNS} FROM cards c WHERE ${condition}`)
+      .bind(...params)
+      .all(),
+    db
+      .prepare(
+        `SELECT ${PRINTING_COLUMNS} FROM printings p LEFT JOIN prices pr ON pr.printing_id = p.id
+         WHERE p.oracle_id IN (SELECT c.oracle_id FROM cards c WHERE ${condition})`,
+      )
+      .bind(...params)
+      .all(),
+  ]);
+  const byOracleId = new Map(cards.results.map((card) => [card.oracle_id, card]));
+  return printings.results.flatMap((printing) => {
+    const card = byOracleId.get(printing.oracle_id);
+    return card ? [{ ...card, ...printing }] : [];
+  });
+}
 
 // One joined row as a card-model printing (src/core/scryfall.mjs toCard), with every known format
 // filled in as not_legal unless the card is legal, restricted or banned there.
@@ -84,18 +105,14 @@ export async function cardDataMeta(db) {
     ingestedAt: meta.ingested_at ?? null,
     formats: meta.formats ? JSON.parse(meta.formats) : null,
     cardCount: meta.card_count ? Number(meta.card_count) : 0,
+    printingCount: meta.printing_count ? Number(meta.printing_count) : 0,
   };
 }
 
-async function selectRows(db, where, values, maxParams = MAX_PARAMS) {
+async function rowsForOracleIds(db, oracleIds, maxParams = MAX_PARAMS) {
   const rows = [];
-  for (const chunk of chunks(values, maxParams)) {
-    const placeholders = chunk.map(() => '?').join(', ');
-    const { results } = await db
-      .prepare(`${SELECT} WHERE ${where(placeholders)}`)
-      .bind(...chunk)
-      .all();
-    rows.push(...results);
+  for (const chunk of chunks(oracleIds, maxParams)) {
+    rows.push(...(await rowsWhere(db, `c.oracle_id IN (${chunk.map(() => '?').join(', ')})`, chunk)));
   }
   return rows;
 }
@@ -147,18 +164,22 @@ export async function loadCardRows(
   for (const [sql, values, paramsPerValue] of lookups) {
     for (const oracleId of await oracleIdsWhere(db, sql, values, { paramsPerValue, maxParams })) wanted.add(oracleId);
   }
-  return selectRows(db, (placeholders) => `p.oracle_id IN (${placeholders})`, [...wanted], maxParams);
+  return rowsForOracleIds(db, [...wanted], maxParams);
 }
 
 // Every printing of every card matching a filter on cards (alias c), such as
 // { sql: 'c.legal_commander = 1 AND (c.color_identity & ~?) = 0', params: [24] }.
-export async function loadMatchingRows(db, { sql, params = [] }) {
-  const { results } = await db
-    .prepare(`${SELECT} WHERE p.oracle_id IN (SELECT c.oracle_id FROM cards c WHERE ${sql})`)
-    .bind(...params)
-    .all();
-  return results;
-}
+export const loadMatchingRows = (db, { sql, params = [] }) => rowsWhere(db, sql, params);
+
+// Every printing of every card a person has any copy of, protected collections included: what
+// ownership counts, searches of their collection and printing choices need.
+export const loadOwnedRows = (db, userId) =>
+  rowsWhere(
+    db,
+    `c.oracle_id IN (SELECT p.oracle_id FROM collection_entries e JOIN printings p ON p.id = e.scryfall_id
+      WHERE e.user_id = ?)`,
+    [userId],
+  );
 
 // The formats every card is judged in, from the ingest, or from the loaded rows when an older ingest
 // didn't record them.
@@ -177,4 +198,26 @@ export async function cardIndexFor(db, rows) {
   for (const row of rows) cards[row.id] = toCardModel(row, context);
   const cache = { version: 7, cards, bulkBuiltAt: meta.builtAt, refreshedAt: meta.ingestedAt };
   return { cache, index: cardIndex(cache), meta };
+}
+
+// Suggestions for a misspelled name from every card's name, as card-index.mjs suggests them. A
+// request's index holds only the cards it loaded, so it can't suggest from the rest; this loads just
+// the names (about 40,000), and only when a lookup misses.
+export async function nameSuggester(db) {
+  const { results } = await db.prepare('SELECT oracle_id, name, front_name, playable FROM cards').all();
+  const cards = {};
+  for (const row of results) {
+    cards[row.oracle_id] = {
+      id: row.oracle_id,
+      oracleId: row.oracle_id,
+      name: row.name,
+      frontName: row.front_name,
+      set: '',
+      collectorNumber: '',
+      legalities: row.playable ? { any: 'legal' } : {},
+      defaultPrinting: true,
+    };
+  }
+  const index = cardIndex({ cards, bulkBuiltAt: 'names only' });
+  return (name) => index.suggestNames(name);
 }
