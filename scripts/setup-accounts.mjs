@@ -10,6 +10,7 @@
 // GitHub: Actions variables and secrets for deploys, the production environment, the main-branch
 // ruleset, and Dependabot and secret-scanning settings.
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { applyEdits, modify, parse } from 'jsonc-parser';
@@ -29,6 +30,7 @@ export const PUBLIC_PATHS = [
   '/token',
   '/authorize',
   '/callback',
+  '/download',
   '/mcp',
 ];
 // Cloudflare Access serves its own endpoints on our hostname (the redirect that completes a sign-in is
@@ -36,8 +38,11 @@ export const PUBLIC_PATHS = [
 // first, so they must be let through. Nothing else under /cdn-cgi/ is.
 export const ACCESS_EDGE_PREFIX = '/cdn-cgi/access/';
 // Paths only a person in a browser opens; Cloudflare Access guards them.
-export const ACCESS_PATHS = ['/authorize', '/callback'];
+export const ACCESS_PATHS = ['/authorize', '/callback', '/download'];
 const CHECK_CONTEXTS = ['lint', 'test', 'scan'];
+// Worker secrets setup:accounts makes itself (32 random bytes each) rather than reading from .env.
+export const GENERATED_SECRETS = ['DOWNLOAD_SIGNING_KEY'];
+export const randomKey = () => randomBytes(32).toString('base64');
 
 const apply = process.argv.includes('--apply');
 const warnings = [];
@@ -385,6 +390,24 @@ async function ensureWorkerSecrets(account, env) {
       cf('PUT', `/accounts/${account}/workers/scripts/${WORKER}/secrets`, {
         name,
         text: env[name],
+        type: 'secret_text',
+      }),
+    );
+  }
+  // Signing keys are generated here and sent straight to the Worker, never written to disk or shown. One
+  // that's already set is kept, so links already handed out keep working.
+  const existing = new Set(
+    (await cf('GET', `/accounts/${account}/workers/scripts/${WORKER}/secrets`)).map((secret) => secret.name),
+  );
+  for (const name of GENERATED_SECRETS) {
+    if (existing.has(name)) {
+      ok(`Worker secret ${name} is set`);
+      continue;
+    }
+    await change(`generate Worker secret ${name}`, () =>
+      cf('PUT', `/accounts/${account}/workers/scripts/${WORKER}/secrets`, {
+        name,
+        text: randomKey(),
         type: 'secret_text',
       }),
     );
