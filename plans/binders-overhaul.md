@@ -11,14 +11,15 @@ Decisions (2026-11-13):
 
 - Hold-back is per binder: only copies in protected binders are held. mtg-manager's "a card in any deck binder
   holds every copy" rule (`holdDeckCards`) stops applying on the server; the core function and its tests stay.
-- ManaBox deck binders (Binder Type `deck`) import as protected binders of kind `deck`, linked to a Deck with
-  the same name when one exists. No Decks are created.
+- ManaBox deck binders (Binder Type `deck`) import as protected binders of kind `deck`. No Decks are created.
+  Linking one to a Deck of the same name (marking it built from cards already in that binder) is left for later:
+  it needs a build_deck variant that takes the cards from the existing binder.
 - ManaBox lists (Binder Type `list`) are skipped on import and reported.
 - Replacing the whole collection makes the file the collection: binders in it are replaced, binders missing
   from it are removed, new ones created. Built decks' binders are refused if their cards would change; the
   preview names them.
 
-## PR 1: binders as the model
+## PR 1: binders as the model (done: #20)
 
 - Migration 0010 (additive): `collections.kind TEXT NOT NULL DEFAULT 'binder'`. Backfill `deck` for binders
   that are a deck's `collection_destination`. Split each `manabox_csv` collection by its rows' `Binder Name`
@@ -32,9 +33,9 @@ Decisions (2026-11-13):
   empty binder. `get_download_link` takes a binder, or the whole collection.
 - Tests: migration on Brad-shaped data, isolation rows, per-binder hold-back.
 
-## PR 2: imports (binder, deck, collection; merge or replace)
+## PR 2: imports (binder, deck, collection; merge or replace) (done)
 
-- Collection (upload page, `get_upload_link kind: collection`): ManaBox CSV split by binder per the decisions
+- Collection (upload page, `import_collection`): ManaBox CSV split by binder per the decisions
   above. Preview lists binders created, replaced and removed, cards changed, decks affected.
 - Binder (`import_binder` for pasted text; upload page for files): text list or CSV into one binder, merge or
   replace, created if new.

@@ -126,6 +126,50 @@ describe('import_deck from a list', () => {
   });
 });
 
+describe('import_deck into an existing deck', () => {
+  it('merges cards in, keeping the deck’s commanders', async () => {
+    const { text } = await callTool(owner, 'import_deck', {
+      list: 'Commander\n1 Bearded Bear\n\nDeck\n2 Lightning Bolt',
+      mode: 'merge',
+      slug: 'bears',
+    });
+    expect(text).toMatch(/^Saved bears: 1 change\. /);
+    expect(text).toContain('Kept the deck’s commanders; replace takes the import’s.');
+    const deck = await stored('bears');
+    expect(deck.commanders.map((entry) => entry.name)).toEqual(['Ayula, Queen Among Bears']);
+    expect(deck.mainboard.find((entry) => entry.name === 'Lightning Bolt')).toMatchObject({ quantity: 2 });
+  });
+
+  it('replaces its cards, commanders included', async () => {
+    await callTool(owner, 'update_deck', { slug: 'bears', ops: [{ op: 'remove_upgrade', add: 'Bearded Bear' }] });
+    const { text } = await callTool(owner, 'import_deck', {
+      list: 'Commander\n1 Bearded Bear\n\nDeck\n1 Sol Ring\n30 Forest',
+      mode: 'replace',
+      slug: 'bears',
+    });
+    expect(text).toMatch(/^Saved bears: \d+ changes\. 32 cards: 1 commanders, 31 mainboard\./);
+    const deck = await stored('bears');
+    expect(deck.commanders.map((entry) => entry.name)).toEqual(['Bearded Bear']);
+    expect(deck.mainboard.map((entry) => [entry.name, entry.quantity])).toEqual([
+      ['Sol Ring', 1],
+      ['Forest', 30],
+    ]);
+  });
+
+  it('needs an existing deck, and leaves built decks’ cards alone', async () => {
+    expect((await callTool(owner, 'import_deck', { list: '1 Sol Ring', mode: 'merge' })).text).toBe(
+      'Pass slug: the deck to merge',
+    );
+    expect((await callTool(owner, 'import_deck', { list: '1 Sol Ring', mode: 'replace', slug: 'nope' })).text).toBe(
+      'No deck named nope; list_decks shows yours',
+    );
+    await callTool(owner, 'build_deck', { slug: 'bears', apply: true });
+    expect((await callTool(owner, 'import_deck', { list: '1 Sol Ring', mode: 'merge', slug: 'bears' })).text).toMatch(
+      /^bears is built: its cards are in collections\/Bears\.txt/,
+    );
+  });
+});
+
 describe('import_deck from Archidekt', () => {
   it('fetches the deck through its API, with categories as sections and roles', async () => {
     const urls = mockArchidekt({ 123456: ARCHIDEKT });

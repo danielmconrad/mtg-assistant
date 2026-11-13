@@ -66,8 +66,9 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
 - **`import_deck`**: a draft deck from a public Archidekt link (its JSON API, through `src/outbound.mjs`, at most
   10 a minute per person with `RL_IMPORT`) or a pasted Moxfield, Archidekt or Arena text export. Moxfield links
   can't be fetched, since Moxfield refuses requests that don't come from a browser. Commander sections and
-  Archidekt's Commander category become commanders, sideboard and maybeboard cards are left out, and the deck is
-  saved as `create_deck` saves it.
+  Archidekt's Commander category become commanders, and sideboard and maybeboard cards are left out. `mode: new`
+  saves a draft as `create_deck` does; `merge` and `replace` change an existing draft's cards through
+  `update_deck` (merging keeps its commanders). Built decks' cards change only through `swap_deck`.
   - **Concurrent edits:** a save is refused if the deck changed since it was read, so two edits can't
     silently overwrite each other.
 - **`add_cards`**, **`remove_cards`** and **`collection_changes`**: change one binder from a short text list
@@ -101,16 +102,25 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   `DOWNLOAD_SIGNING_KEY` (`src/links.mjs`), expires after 15 minutes and works three times, counted in D1's
   `link_uses`. Cloudflare Access guards it, and the Access identity must be the link's own person. The file is
   built when the link is opened and never stored. Each download or refusal is written to `auth_events`.
-- **`get_upload_link`** and the upload page: a link to `/upload`, where the person picks a ManaBox CSV export
-  or a text list (5 MB at most), a binder (a new name starts one, in the file's format) and whether to merge
-  the file into it or replace it.
+- **Importing** is one tool per kind of thing, each merging or replacing:
+  - **`import_collection`**: a link to `/upload` for a ManaBox CSV export of everything. Each ManaBox binder
+    becomes a binder (unprotected) and each ManaBox deck a protected deck binder; lists (wishlists) are left
+    out. `replace` (the default) makes the collection exactly the file, removing binders it doesn't have;
+    `merge` adds to the binders of the same names. Built decks' binders are never changed by an import.
+  - **`import_binder`**: a pasted list (Moxfield, Archidekt, Arena or ManaBox text) merged into or replacing
+    one binder, or without one, a link to `/upload` for a ManaBox CSV or text file for that binder.
+  - **`import_deck`** (above): a deck from Archidekt or a pasted list, as a new draft or merged into or
+    replacing an existing draft's cards.
+- **The upload page** (`/upload`): the person picks a file (5 MB at most), the whole collection or one binder,
+  and merge or replace.
   - **The link** is signed with `UPLOAD_SIGNING_KEY`, lasts 10 minutes and allows three previews. Access guards
     the page, and the Access identity must be the link's person. Posts must come from the page's own origin.
   - **Preview first:** the page lists every card whose count would change and the decks naming them. The raw
     file is kept in the private R2 bucket (`UPLOADS`; no public access, no r2.dev URL), and a row in `uploads`
     holds the preview with its own CSRF token.
-  - **Applying** works once per preview. It replans from the stored file and applies only if the binder is
-    still at the revision it was previewed at, so what applies is what was shown. ManaBox's other columns are
+  - **Applying** works once per preview. It replans from the stored file and applies only if every binder it
+    touches is still at the revision it was previewed at (`uploads.base_revisions`), so what applies is what
+    was shown; binders a refused apply would have created are removed again. ManaBox's other columns are
     kept for downloads, and the log records the net change per card (`source: upload`), never prices.
   - **Large files:** rows are written as JSON chunks through SQLite's `json_each`, so thousands of rows take a
     handful of D1 statements.

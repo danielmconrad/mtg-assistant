@@ -1,4 +1,4 @@
-// get_upload_link and the /upload page on the shared fixture (tool-fixtures.mjs): previews, applying a
+// import_collection, import_binder and the /upload page on the shared fixture (tool-fixtures.mjs): previews, applying a
 // preview exactly once, and the refusals around them.
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -32,7 +32,11 @@ async function rows(name) {
 }
 
 const linkFor = async (args = {}) => {
-  const { text } = await callTool(owner, 'get_upload_link', args);
+  const { text } = await callTool(owner, args.tool ?? 'import_binder', {
+    binder: 'ManaBox_Collection',
+    ...args,
+    tool: undefined,
+  });
   const url = new URL(text.match(/https:\/\/\S+/)[0]);
   return { url, token: url.searchParams.get('token') };
 };
@@ -66,7 +70,7 @@ const formOf = (html) => ({
 const events = async (type) =>
   (await env.DB.prepare('SELECT * FROM auth_events WHERE type = ?').bind(type).all()).results;
 
-describe('get_upload_link and the page', () => {
+describe('upload links and the page', () => {
   it('shows the form only to the link’s person, signed in through Access', async () => {
     const { url } = await linkFor({ binder: 'binders/New' });
     const page = await open(url);
@@ -101,7 +105,7 @@ describe('merging', () => {
 
     const fields = { step: 'approve', ...formOf(html) };
     const applied = await post(fields);
-    expect(await applied.text()).toContain('Merged into ManaBox_Collection: 2 cards changed.');
+    expect(await applied.text()).toContain('Merged into ManaBox_Collection: 2 card changes in 1 binder.');
     expect(await rows('ManaBox_Collection')).toEqual([
       ['Sol Ring', 3, 'normal'],
       ['Llanowar Elves', 3, 'normal'],
@@ -166,7 +170,8 @@ describe('replacing', () => {
   it('starts a new collection in the file’s format', async () => {
     const { token } = await linkFor();
     const html = await (await previewOf(token, CSV, 'binder.csv', { collection: 'binders/Upload' })).text();
-    expect(html).toContain('<h1>Merge binders/Upload (new)?</h1>');
+    expect(html).toContain('<h1>Merge binders/Upload?</h1>');
+    expect(html).toContain('<h2>binders/Upload (new)</h2>');
     await post({ step: 'approve', ...formOf(html) });
     expect(await collection('binders/Upload')).toMatchObject({
       format: 'manabox_csv',
@@ -180,7 +185,7 @@ describe('replacing', () => {
     await callTool(owner, 'add_cards', { binder: 'ManaBox_Collection', cards: '1 Forest' });
     const before = await rows('ManaBox_Collection');
     const applied = await post({ step: 'approve', ...formOf(html) });
-    expect(await applied.text()).toContain('ManaBox_Collection changed since the preview.');
+    expect(await applied.text()).toContain('Your binders changed since the preview.');
     expect(await rows('ManaBox_Collection')).toEqual(before);
     expect(await env.DB.prepare('SELECT status FROM uploads').first('status')).toBe('failed');
   });
@@ -197,7 +202,7 @@ describe('refusals', () => {
   });
 
   it('refuses another person’s preview, another origin, oversized bodies and unknown steps', async () => {
-    await callTool(owner, 'get_upload_link');
+    await callTool(owner, 'import_binder', { binder: 'ManaBox_Collection' });
     const { token } = await linkFor();
     const html = await (await previewOf(token, '1 Forest', 'cards.txt')).text();
     expect((await post({ step: 'approve', ...formOf(html) }, { email: OTHER })).status).toBe(403);
@@ -224,5 +229,93 @@ describe('refusals', () => {
     const { token } = await linkFor();
     const page = await previewOf(token, '1 Forest', 'cards.txt', { collection: 'protected/precons/Spooky' });
     expect(await page.text()).toContain('protected/precons/Spooky holds the built deck bears');
+  });
+});
+
+describe('importing the whole collection', () => {
+  const header = 'Binder Name,Binder Type,Name,Quantity,Scryfall ID,Set code,Collector number,Foil,Purchase price\n';
+  const EXPORT =
+    `${header}ManaBox_Collection,binder,Sol Ring,1,${ID.solRing},C21,263,normal,1.50\n` +
+    `Goblins,deck,Reanimate,1,${ID.reanimate},TST,1,normal,0.10\n` +
+    `Wishlist,list,Sol Ring,3,${ID.solRing},C21,263,normal,\n` +
+    `Bears,deck,Sol Ring,1,${ID.solRing},C21,263,normal,\n`;
+  const collectionLink = (mode) => linkFor({ tool: 'import_collection', binder: undefined, mode });
+  const previewCollection = async (token, mode, text = EXPORT, name = 'ManaBox_Collection.csv') =>
+    previewOf(token, text, name, { target: 'collection', collection: '', mode });
+
+  it('replaces it: binders and decks from the file, lists and built decks left out, the rest removed', async () => {
+    await callTool(owner, 'build_deck', { slug: 'bears', apply: true });
+    const { text } = await callTool(owner, 'import_collection', {});
+    expect(text).toContain('Replacing makes the collection exactly the file');
+    const { token } = await collectionLink('replace');
+    const html = await (await previewCollection(token, 'replace')).text();
+    expect(html).toContain('<h1>Replace your whole collection?</h1>');
+    expect(html).toContain(
+      '<h2>Goblins (new, deck, protected: never used by other decks)</h2><ul><li>+1 Reanimate</li>',
+    );
+    expect(html).toContain('<h2>protected/precons/Spooky (removed, protected: never used by other decks)</h2>');
+    expect(html).toContain('Bears holds the built deck bears; it changes only with that deck');
+    expect(html).toContain('3 copies in ManaBox lists, which are wishlists rather than owned cards');
+    await post({ step: 'approve', ...formOf(html) });
+    const binders = await listCollections(env.DB, await userId());
+    expect(binders.map(({ name, kind, protected: held, copies }) => [name, kind, held, copies])).toEqual([
+      ['Bears', 'deck', 1, 100],
+      ['Goblins', 'deck', 1, 1],
+      ['ManaBox_Collection', 'binder', 0, 1],
+    ]);
+    expect((await callTool(owner, 'collection_changes', { since: '2026-01-01' })).text).toContain(
+      'protected/precons/Spooky: -1 Missing Card, -1 Reanimate',
+    );
+  });
+
+  it('merges it, creating new binders and keeping the rest', async () => {
+    const { token } = await collectionLink('merge');
+    const html = await (await previewCollection(token, 'merge')).text();
+    expect(html).toContain('<h1>Merge your whole collection?</h1>');
+    await post({ step: 'approve', ...formOf(html) });
+    expect(await rows('ManaBox_Collection')).toEqual([
+      ['Sol Ring', 3, 'normal'],
+      ['Llanowar Elves', 3, 'normal'],
+      ['Ayula, Queen Among Bears', 1, 'foil'],
+    ]);
+    expect(await rows('Bears')).toEqual([['Sol Ring', 1, 'normal']]);
+    expect((await collection('protected/precons/Spooky')).copies).toBe(2);
+  });
+
+  it('needs a ManaBox export, and refuses binders that changed since the preview', async () => {
+    const { token } = await collectionLink('replace');
+    expect(await (await previewCollection(token, 'replace', '1 Sol Ring', 'cards.txt')).text()).toContain(
+      'A whole collection comes from a ManaBox CSV export',
+    );
+    const html = await (await previewCollection(token, 'replace')).text();
+    await callTool(owner, 'add_cards', { binder: 'protected/precons/Spooky', cards: '1 Forest' });
+    expect(await (await post({ step: 'approve', ...formOf(html) })).text()).toContain(
+      'Your binders changed since the preview.',
+    );
+    expect(await collection('Goblins')).toBeUndefined();
+  });
+});
+
+describe('import_binder with a pasted list', () => {
+  it('merges into a binder, or replaces its cards', async () => {
+    expect(
+      (await callTool(owner, 'import_binder', { binder: 'ManaBox_Collection', cards: '2 Forest', note: 'Lands' })).text,
+    ).toBe('Merged into ManaBox_Collection: +2 -0 copies.\nbears names Forest');
+    const replaced = await callTool(owner, 'import_binder', {
+      binder: 'ManaBox_Collection',
+      cards: '1 Sol Ring (C21) 263\n1 Reanimate',
+      mode: 'replace',
+    });
+    expect(replaced.text).toBe(
+      'Replaced ManaBox_Collection: +1 -7 copies.\nbears names Ayula, Queen Among Bears, Sol Ring, Llanowar Elves, Forest',
+    );
+    expect(await rows('ManaBox_Collection')).toEqual([
+      ['Sol Ring', 1, 'normal'],
+      ['Reanimate', 1, 'normal'],
+    ]);
+    expect(
+      (await callTool(owner, 'import_binder', { binder: 'Trade', cards: '1 Forest', create: true, protected: true }))
+        .text,
+    ).toBe('Merged into Trade (new, protected): +1 -0 copies.\nbears names Forest');
   });
 });
