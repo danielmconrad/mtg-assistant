@@ -98,11 +98,14 @@ describe('get_cards', () => {
 });
 
 describe('collection_summary', () => {
-  it('lists collections, protection and unmatched rows', async () => {
+  it('lists the collection’s binders, protection and unmatched rows', async () => {
     const { text } = await callTool(owner, 'collection_summary');
     expect(text).toMatch(/^Card data: \d+ printings of \d+ cards/m);
-    expect(text).toContain('ManaBox_Collection: 3 rows, 6 copies, 3 distinct names, 0 proxy copies');
-    expect(text).toContain('protected/precons/Spooky (protected): 2 rows');
+    expect(text).toContain(
+      'Collection: 8 copies, 5 distinct cards in 2 binders (1 protected: reported, but never used by other decks).',
+    );
+    expect(text).toContain('  ManaBox_Collection: 6 copies, 3 distinct cards');
+    expect(text).toContain('  protected/precons/Spooky (protected): 2 copies, 2 distinct cards');
     expect(text).toContain('WARNING: protected/precons/Spooky: line 2: Missing Card matches no printing');
   });
 });
@@ -178,7 +181,7 @@ describe('get_download_link and /download', () => {
 
   it('downloads a ManaBox CSV that reads back, without purchase prices unless asked', async () => {
     const { text } = await callTool(owner, 'get_download_link', {
-      collection: 'ManaBox_Collection',
+      binder: 'ManaBox_Collection',
       format: 'manabox_csv',
     });
     expect(text).toMatch(/expires at \d\d:\d\d UTC \(15 minutes\) and works 3 times/);
@@ -200,32 +203,29 @@ describe('get_download_link and /download', () => {
     );
 
     const priced = await (
-      await open(await linkFor({ collection: 'ManaBox_Collection', format: 'manabox_csv', include_prices: true }))
+      await open(await linkFor({ binder: 'ManaBox_Collection', format: 'manabox_csv', include_prices: true }))
     ).text();
     expect(priced.split('\n')[0]).toContain('Purchase price');
     expect(priced).toContain('1.50');
   });
 
   it('writes Moxfield CSV and text lists', async () => {
-    const moxfield = await (
-      await open(await linkFor({ collection: 'ManaBox_Collection', format: 'moxfield_csv' }))
-    ).text();
+    const moxfield = await (await open(await linkFor({ binder: 'ManaBox_Collection', format: 'moxfield_csv' }))).text();
     expect(moxfield.split('\n').slice(0, 2)).toEqual([
       'Count,Name,Edition,Collector Number,Foil,Proxy',
       '2,Sol Ring,c21,263,,False',
     ]);
-    const text = await (await open(await linkFor({ collection: 'ManaBox_Collection', format: 'text' }))).text();
+    const text = await (await open(await linkFor({ binder: 'ManaBox_Collection', format: 'text' }))).text();
     expect(text).toBe('2 Sol Ring (C21) 263\n3 Llanowar Elves (M19) 314\n1 Ayula, Queen Among Bears (MH1) 155 *F*\n');
     expect(parseTextCollection(text, 'download')).toHaveLength(3);
   });
 
   it('combines every collection into one ManaBox CSV, naming each row’s binder', async () => {
     const { text } = await callTool(owner, 'get_download_link', {
-      collection: 'all',
       combine: true,
       format: 'manabox_csv',
     });
-    expect(text).toContain('every collection (2) as one file');
+    expect(text).toContain('the whole collection (2 binders) as one file');
     const response = await open(linkIn(text));
     expect(response.headers.get('Content-Type')).toBe('text/csv; charset=utf-8');
     expect(response.headers.get('Content-Disposition')).toMatch(
@@ -241,13 +241,13 @@ describe('get_download_link and /download', () => {
     ]);
     expect(body).toMatch(/^protected\/precons\/Spooky,binder,Reanimate,/m);
     expect(JSON.parse((await events('download_served'))[0].detail)).toMatchObject({ combine: true });
-    expect((await callTool(owner, 'get_download_link', { collection: 'ManaBox_Collection', combine: true })).text).toBe(
-      'combine joins every collection; pass collection "all"',
+    expect((await callTool(owner, 'get_download_link', { binder: 'ManaBox_Collection', combine: true })).text).toBe(
+      'combine joins every binder; leave binder out',
     );
   });
 
   it('writes a text list ManaBox imports by default', async () => {
-    const { text } = await callTool(owner, 'get_download_link', { collection: 'ManaBox_Collection' });
+    const { text } = await callTool(owner, 'get_download_link', { binder: 'ManaBox_Collection' });
     expect(text).toContain('ManaBox_Collection (text)');
     expect(text).not.toContain('WARNING');
     const response = await open(linkIn(text));
@@ -258,8 +258,8 @@ describe('get_download_link and /download', () => {
   });
 
   it('zips every collection with a manifest', async () => {
-    const { text } = await callTool(owner, 'get_download_link', { collection: 'all', format: 'manabox_csv' });
-    expect(text).toContain('every collection (2) as a zip');
+    const { text } = await callTool(owner, 'get_download_link', { format: 'manabox_csv' });
+    expect(text).toContain('the whole collection (2 binders) as a zip with a file per binder');
     expect(text).toContain('WARNING: 1 rows match no printing');
     const response = await open(linkIn(text));
     expect(response.headers.get('Content-Type')).toBe('application/zip');
@@ -278,6 +278,7 @@ describe('get_download_link and /download', () => {
       {
         name: 'ManaBox_Collection',
         file: 'ManaBox_Collection.csv',
+        kind: 'binder',
         protected: false,
         rows: 3,
         copies: 6,
@@ -286,20 +287,19 @@ describe('get_download_link and /download', () => {
       {
         name: 'protected/precons/Spooky',
         file: 'protected/precons/Spooky.csv',
+        kind: 'binder',
         protected: true,
         rows: 2,
         copies: 2,
         rows_left_out: 1,
       },
     ]);
-    const textZip = await unzip(
-      new Uint8Array(await (await open(await linkFor({ collection: 'all', format: 'text' }))).arrayBuffer()),
-    );
+    const textZip = await unzip(new Uint8Array(await (await open(await linkFor({ format: 'text' }))).arrayBuffer()));
     expect(textZip['protected/precons/Spooky.txt']).toMatch(/^1 Reanimate.*\n1 Missing Card \(ZZZ\) 1\n$/);
   });
 
   it('works three times, then refuses', async () => {
-    const url = await linkFor({ collection: 'ManaBox_Collection' });
+    const url = await linkFor({ binder: 'ManaBox_Collection' });
     for (let use = 0; use < 3; use += 1) expect((await open(url)).status).toBe(200);
     const refused = await open(url);
     expect(refused.status).toBe(403);
@@ -309,7 +309,7 @@ describe('get_download_link and /download', () => {
   });
 
   it('opens only for the link’s own person, signed in through Access', async () => {
-    const url = await linkFor({ collection: 'ManaBox_Collection' });
+    const url = await linkFor({ binder: 'ManaBox_Collection' });
     expect((await open(url, OTHER)).status).toBe(403);
     expect((await open(url, null)).status).toBe(403);
     expect((await events('download_refused')).map((event) => JSON.parse(event.detail).reason)).toEqual([
@@ -321,17 +321,17 @@ describe('get_download_link and /download', () => {
   });
 
   it('refuses tampered, expired and wrong-purpose tokens', async () => {
-    const url = await linkFor({ collection: 'ManaBox_Collection' });
+    const url = await linkFor({ binder: 'ManaBox_Collection' });
     const token = url.searchParams.get('token');
     const [body, signature] = token.split('.');
     const forged = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
-    forged.collection = 'all';
+    delete forged.binder;
     const forgedBody = btoa(JSON.stringify(forged)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     url.searchParams.set('token', `${forgedBody}.${signature}`);
     expect((await open(url)).status).toBe(403);
 
     const userId = (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(OWNER).first()).id;
-    const claims = { user: userId, collection: 'all', format: 'text', prices: false };
+    const claims = { user: userId, format: 'text', prices: false };
     const expired = await signLink(env.DOWNLOAD_SIGNING_KEY, DOWNLOAD_PURPOSE, claims, {
       now: Date.now() - 3_600_000,
       ttlMs: 60_000,
@@ -349,14 +349,14 @@ describe('get_download_link and /download', () => {
   });
 
   it('refuses unknown collections, and says when downloads are not set up', async () => {
-    expect(await callTool(owner, 'get_download_link', { collection: 'Nope' })).toMatchObject({
+    expect(await callTool(owner, 'get_download_link', { binder: 'Nope' })).toMatchObject({
       isError: true,
-      text: 'No collection named Nope; collection_summary lists yours',
+      text: 'No binder named Nope; collection_summary lists yours',
     });
     const response = await mcp(
       owner.tokens.access_token,
       'tools/call',
-      { name: 'get_download_link', arguments: { collection: 'all' } },
+      { name: 'get_download_link', arguments: {} },
       { DOWNLOAD_SIGNING_KEY: '' },
     );
     expect((await response.json()).result.content[0].text).toBe('Downloads are not set up on this server yet.');
@@ -396,7 +396,11 @@ describe('get_workflow and prompts', () => {
 const ISOLATION = {
   search_cards: [{ include_protected: true }, (text) => expect(text).toMatch(/^0 cards$/m)],
   get_cards: [{ names: ['Llanowar Elves'] }, (text) => expect(text).toMatch(/Copies: 0 available[\s\S]*Decks: none/)],
-  collection_summary: [{}, (text) => expect(text).toContain('No collections yet.')],
+  collection_summary: [{}, (text) => expect(text).toContain('No binders yet.')],
+  update_binder: [
+    { binder: 'binder', protected: true },
+    (text) => expect(text).toBe('No binder named binder; collection_summary lists yours'),
+  ],
   list_decks: [{}, (text) => expect(text).toBe('No decks yet.')],
   rank_commanders: [
     { min_cards: 0 },
@@ -428,18 +432,18 @@ const ISOLATION = {
     (text) => expect(text).toMatch(/^Created bears \(casual-60, draft\)/),
   ],
   add_cards: [
-    { collection: 'binder', cards: '1 Forest' },
-    (text) => expect(text).toMatch(/^No collection named binder \(yours: none yet\)/),
+    { binder: 'binder', cards: '1 Forest' },
+    (text) => expect(text).toMatch(/^No binder named binder \(yours: none yet\)/),
   ],
   remove_cards: [
-    { collection: 'binder', cards: '1 Forest' },
-    (text) => expect(text).toMatch(/^No collection named binder \(yours: none yet\)/),
+    { binder: 'binder', cards: '1 Forest' },
+    (text) => expect(text).toMatch(/^No binder named binder \(yours: none yet\)/),
   ],
   collection_changes: [
     { since: '2026-01-01' },
     (text) => expect(text).toMatch(/^No collection changes since 2026-01-01\./),
   ],
-  get_download_link: [{ collection: 'all' }, (text) => expect(text).toBe('No collections to download yet.')],
+  get_download_link: [{}, (text) => expect(text).toBe('No binders to download yet.')],
   build_deck: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
   teardown_deck: [{ slug: 'bears', to: 'binder' }, (text) => expect(text).toMatch(/No deck named bears/)],
   swap_deck: [

@@ -68,7 +68,7 @@ const events = async (type) =>
 
 describe('get_upload_link and the page', () => {
   it('shows the form only to the link’s person, signed in through Access', async () => {
-    const { url } = await linkFor({ collection: 'binders/New' });
+    const { url } = await linkFor({ binder: 'binders/New' });
     const page = await open(url);
     expect(page.status).toBe(200);
     const html = await page.text();
@@ -177,7 +177,7 @@ describe('replacing', () => {
   it('applies nothing when the collection changed since the preview', async () => {
     const { token } = await linkFor();
     const html = await (await previewOf(token, CSV, 'ManaBox.csv', { mode: 'replace' })).text();
-    await callTool(owner, 'add_cards', { collection: 'ManaBox_Collection', cards: '1 Forest' });
+    await callTool(owner, 'add_cards', { binder: 'ManaBox_Collection', cards: '1 Forest' });
     const before = await rows('ManaBox_Collection');
     const applied = await post({ step: 'approve', ...formOf(html) });
     expect(await applied.text()).toContain('ManaBox_Collection changed since the preview.');

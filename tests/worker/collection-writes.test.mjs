@@ -32,7 +32,7 @@ async function rows(name, email = OWNER) {
 describe('add_cards', () => {
   it('adds to matching rows, or new rows, and names the decks that play them', async () => {
     const result = await callTool(owner, 'add_cards', {
-      collection: 'ManaBox_Collection',
+      binder: 'ManaBox_Collection',
       cards: '2 Llanowar Elves (M19) 314\n1 lightning bolt\n1 Sol Ring (C21) 263 *F*',
       note: 'Bought at the LGS',
     });
@@ -50,31 +50,38 @@ describe('add_cards', () => {
     expect((await callTool(owner, 'search_cards', { name: 'Elves' })).text).toContain('5x Llanowar Elves');
   });
 
-  it('starts a new text list only when asked, protecting precons', async () => {
-    expect((await callTool(owner, 'add_cards', { collection: 'binders/New', cards: '1 Forest' })).text).toMatch(
-      /^No collection named binders\/New \(yours: ManaBox_Collection, protected\/precons\/Spooky\); pass create: true/,
+  it('starts a new binder only when asked, protected when asked', async () => {
+    expect((await callTool(owner, 'add_cards', { binder: 'binders/New', cards: '1 Forest' })).text).toMatch(
+      /^No binder named binders\/New \(yours: ManaBox_Collection, protected\/precons\/Spooky\); pass create: true/,
+    );
+    expect((await callTool(owner, 'add_cards', { binder: 'binders/New', cards: '3 Forest', create: true })).text).toBe(
+      'Added 3 copies to binders/New (new): +3 Forest.\nbears names Forest',
     );
     expect(
-      (await callTool(owner, 'add_cards', { collection: 'binders/New', cards: '3 Forest', create: true })).text,
-    ).toBe('Added 3 copies to binders/New (new): +3 Forest.\nbears names Forest');
-    expect(
-      (await callTool(owner, 'add_cards', { collection: 'precons/Bears', cards: '1 Reanimate', create: true })).text,
+      (
+        await callTool(owner, 'add_cards', {
+          binder: 'precons/Bears',
+          cards: '1 Reanimate',
+          create: true,
+          protected: true,
+        })
+      ).text,
     ).toBe('Added 1 copy to precons/Bears (new, protected): +1 Reanimate.');
     const summary = (await callTool(owner, 'collection_summary')).text;
-    expect(summary).toContain('binders/New: 1 rows, 3 copies');
-    expect(summary).toContain('precons/Bears (protected): 1 rows');
-    for (const name of ['../escape', 'a//b', 'bad*name', '.hidden']) {
+    expect(summary).toContain('  binders/New: 3 copies, 1 distinct cards');
+    expect(summary).toContain('  precons/Bears (protected): 1 copies, 1 distinct cards');
+    for (const name of ['../escape', 'a//b', ' leading', 'back\\slash', 'x'.repeat(61)]) {
       expect(
-        (await callTool(owner, 'add_cards', { collection: name, cards: '1 Forest', create: true })).text,
+        (await callTool(owner, 'add_cards', { binder: name, cards: '1 Forest', create: true })).text,
         name,
-      ).toMatch(/can't be a collection name/);
+      ).toMatch(/can't be a binder name/);
     }
   });
 
   it('refuses lines that match no card, changing nothing', async () => {
     const before = await rows('ManaBox_Collection');
     const result = await callTool(owner, 'add_cards', {
-      collection: 'ManaBox_Collection',
+      binder: 'ManaBox_Collection',
       cards: '1 Sol Ring\n1 Llanowar Elfs\n1 Lightning Bolt (ZZZ) 1\nnot a line',
     });
     expect(result).toEqual({
@@ -82,7 +89,7 @@ describe('add_cards', () => {
       text: 'cards: line 4: expected "QUANTITY NAME (SET) NUMBER", got "not a line"',
     });
     const unmatched = await callTool(owner, 'add_cards', {
-      collection: 'ManaBox_Collection',
+      binder: 'ManaBox_Collection',
       cards: '1 Sol Ring\n1 Llanowar Elfs\n1 Lightning Bolt (ZZZ) 1',
     });
     expect(unmatched.text).toBe(
@@ -96,19 +103,19 @@ describe('add_cards', () => {
     const { deck, updatedAt } = await loadDeckForUpdate(env.DB, id, 'bears');
     const built = { ...deck, status: 'built', collection_destination: 'collections/protected/precons/Spooky.txt' };
     await saveDeck(env.DB, id, 'bears', built, { updatedAt, now: Date.now() });
-    expect(
-      (await callTool(owner, 'add_cards', { collection: 'protected/precons/Spooky', cards: '1 Forest' })).text,
-    ).toBe('protected/precons/Spooky holds the built deck bears; its cards change only with that deck');
+    expect((await callTool(owner, 'add_cards', { binder: 'protected/precons/Spooky', cards: '1 Forest' })).text).toBe(
+      'protected/precons/Spooky holds the built deck bears; its cards change only with that deck',
+    );
   });
 });
 
 describe('remove_cards', () => {
   it('takes copies out, deleting rows left empty', async () => {
-    expect(
-      (await callTool(owner, 'remove_cards', { collection: 'ManaBox_Collection', cards: '1 Sol Ring' })).text,
-    ).toBe('Removed 1 copy from ManaBox_Collection: -1 Sol Ring.\nbears names Sol Ring');
+    expect((await callTool(owner, 'remove_cards', { binder: 'ManaBox_Collection', cards: '1 Sol Ring' })).text).toBe(
+      'Removed 1 copy from ManaBox_Collection: -1 Sol Ring.\nbears names Sol Ring',
+    );
     await callTool(owner, 'remove_cards', {
-      collection: 'ManaBox_Collection',
+      binder: 'ManaBox_Collection',
       cards: '1 Sol Ring\n1 Ayula, Queen Among Bears',
     });
     expect(await rows('ManaBox_Collection')).toEqual([['Llanowar Elves', 3, 'normal', 'M19']]);
@@ -116,7 +123,7 @@ describe('remove_cards', () => {
 
   it('removes nothing unless every line can be removed', async () => {
     const result = await callTool(owner, 'remove_cards', {
-      collection: 'ManaBox_Collection',
+      binder: 'ManaBox_Collection',
       cards: '1 Sol Ring\n4 Llanowar Elves\n1 Lightning Bolt',
     });
     expect(result.text).toBe(
@@ -126,13 +133,11 @@ describe('remove_cards', () => {
   });
 
   it('asks for the printing when a name alone is ambiguous', async () => {
-    await callTool(owner, 'add_cards', { collection: 'ManaBox_Collection', cards: '1 Sol Ring (C21) 263 *F*' });
-    expect(
-      (await callTool(owner, 'remove_cards', { collection: 'ManaBox_Collection', cards: '1 Sol Ring' })).text,
-    ).toBe(
+    await callTool(owner, 'add_cards', { binder: 'ManaBox_Collection', cards: '1 Sol Ring (C21) 263 *F*' });
+    expect((await callTool(owner, 'remove_cards', { binder: 'ManaBox_Collection', cards: '1 Sol Ring' })).text).toBe(
       'cards: line 1: Sol Ring is held in several printings (C21 263; C21 263 foil); name one as (SET) NUMBER, with *F* for foil',
     );
-    await callTool(owner, 'remove_cards', { collection: 'ManaBox_Collection', cards: '1 Sol Ring (C21) 263 *F*' });
+    await callTool(owner, 'remove_cards', { binder: 'ManaBox_Collection', cards: '1 Sol Ring (C21) 263 *F*' });
     expect((await rows('ManaBox_Collection')).filter(([name]) => name === 'Sol Ring')).toEqual([
       ['Sol Ring', 2, 'normal', 'C21'],
     ]);
@@ -144,9 +149,9 @@ describe('collection_changes', () => {
     expect((await callTool(owner, 'collection_changes')).text).toMatch(
       /^No collection changes since \d{4}-\d{2}-\d{2}\./,
     );
-    await callTool(owner, 'add_cards', { collection: 'ManaBox_Collection', cards: '2 Lightning Bolt', note: 'Trade' });
-    await callTool(owner, 'remove_cards', { collection: 'ManaBox_Collection', cards: '1 Lightning Bolt\n1 Sol Ring' });
-    await callTool(owner, 'add_cards', { collection: 'binders/New', cards: '1 Forest', create: true });
+    await callTool(owner, 'add_cards', { binder: 'ManaBox_Collection', cards: '2 Lightning Bolt', note: 'Trade' });
+    await callTool(owner, 'remove_cards', { binder: 'ManaBox_Collection', cards: '1 Lightning Bolt\n1 Sol Ring' });
+    await callTool(owner, 'add_cards', { binder: 'binders/New', cards: '1 Forest', create: true });
     const { text } = await callTool(owner, 'collection_changes', { since: '2026-01-01' });
     const lines = text.split('\n');
     expect(lines.slice(0, 6)).toEqual([
@@ -160,9 +165,9 @@ describe('collection_changes', () => {
     expect(lines[6]).toMatch(/^ {2}\d{4}-\d\d-\d\d \d\d:\d\d add_cards, binders\/New: \+1$/);
     expect(lines[7]).toMatch(/ remove_cards, ManaBox_Collection: -2$/);
     expect(lines[8]).toMatch(/ add_cards, ManaBox_Collection: \+2 — Trade$/);
-    expect(
-      (await callTool(owner, 'collection_changes', { since: '2026-01-01', collection: 'binders/New' })).text,
-    ).toMatch(/^Collection changes since 2026-01-01:\n {2}binders\/New: \+1 Forest\n/);
+    expect((await callTool(owner, 'collection_changes', { since: '2026-01-01', binder: 'binders/New' })).text).toMatch(
+      /^Collection changes since 2026-01-01:\n {2}binders\/New: \+1 Forest\n/,
+    );
   });
 });
 
@@ -193,9 +198,79 @@ describe('the revision guard', () => {
 
 describe('another person', () => {
   it('changes only their own collections', async () => {
-    await callTool(other, 'add_cards', { collection: 'ManaBox_Collection', cards: '1 Forest', create: true });
+    await callTool(other, 'add_cards', { binder: 'ManaBox_Collection', cards: '1 Forest', create: true });
     expect(await rows('ManaBox_Collection', OTHER)).toEqual([['Forest', 1, 'normal', null]]);
     expect(await rows('ManaBox_Collection')).toHaveLength(3);
     expect((await callTool(other, 'collection_changes', { since: '2026-01-01' })).text).not.toMatch(/Sol Ring|Elves/);
+  });
+});
+
+describe('update_binder', () => {
+  it('protects, renames and deletes a binder, keeping it out of decks while protected', async () => {
+    expect(
+      (
+        await callTool(owner, 'update_binder', {
+          binder: 'ManaBox_Collection',
+          protected: true,
+          rename: 'Trade Binder!',
+        })
+      ).text,
+    ).toBe('ManaBox_Collection: renamed to Trade Binder!, now protected.');
+    const summary = (await callTool(owner, 'collection_summary')).text;
+    expect(summary).toContain('  Trade Binder! (protected): 6 copies, 3 distinct cards');
+    expect((await callTool(owner, 'check_deck', { slug: 'bears' })).text).toMatch(/^FAIL/);
+    expect((await callTool(owner, 'update_binder', { binder: 'Trade Binder!', protected: false })).text).toBe(
+      'Trade Binder!: no longer protected.',
+    );
+    expect((await callTool(owner, 'check_deck', { slug: 'bears' })).text).toMatch(/^PASS/);
+
+    expect((await callTool(owner, 'update_binder', { binder: 'Trade Binder!', delete: true })).text).toBe(
+      'Trade Binder! still holds 6 copies; move or remove them first',
+    );
+    await callTool(owner, 'add_cards', { binder: 'Empty', cards: '1 Forest', create: true });
+    await callTool(owner, 'remove_cards', { binder: 'Empty', cards: '1 Forest' });
+    expect((await callTool(owner, 'update_binder', { binder: 'Empty', delete: true })).text).toBe(
+      'Deleted the empty binder Empty.',
+    );
+    expect(await rows('Empty')).toBeUndefined();
+  });
+
+  it('refuses taken and invalid names, empty requests and a built deck’s binder', async () => {
+    const binder = 'ManaBox_Collection';
+    expect((await callTool(owner, 'update_binder', { binder, rename: 'protected/precons/Spooky' })).text).toBe(
+      'A binder named protected/precons/Spooky already exists',
+    );
+    expect((await callTool(owner, 'update_binder', { binder, rename: 'a//b' })).text).toMatch(
+      /^a\/\/b can't be a binder name/,
+    );
+    expect((await callTool(owner, 'update_binder', { binder })).text).toBe('Pass rename, protected or delete');
+    expect((await callTool(owner, 'update_binder', { binder, delete: true, protected: true })).text).toBe(
+      'Delete a binder on its own, without rename or protected',
+    );
+    await callTool(owner, 'build_deck', { slug: 'bears', apply: true });
+    expect((await callTool(owner, 'update_binder', { binder: 'Bears', protected: false })).text).toBe(
+      'Bears holds the built deck bears; it stays as it is until teardown_deck takes the deck apart',
+    );
+    expect((await callTool(owner, 'collection_summary')).text).toContain('  Bears (deck, protected): 100 copies');
+  });
+});
+
+describe('collection_source', () => {
+  it('takes binder names and keeps path patterns', async () => {
+    await callTool(owner, 'update_deck', {
+      slug: 'bears',
+      ops: [{ op: 'set', field: 'collection_source', value: ['Manabox*', 'collections/protected/**'] }],
+    });
+    const id = await userId(OWNER);
+    expect((await loadDeckForUpdate(env.DB, id, 'bears')).deck.collection_source).toEqual([
+      'collections/Manabox*.*',
+      'collections/protected/**',
+    ]);
+    expect((await callTool(owner, 'check_deck', { slug: 'bears' })).text).toMatch(/^FAIL/);
+    await callTool(owner, 'update_deck', {
+      slug: 'bears',
+      ops: [{ op: 'set', field: 'collection_source', value: ['ManaBox_*'] }],
+    });
+    expect((await callTool(owner, 'check_deck', { slug: 'bears' })).text).toMatch(/^PASS/);
   });
 });

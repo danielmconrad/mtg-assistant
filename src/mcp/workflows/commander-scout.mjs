@@ -6,7 +6,7 @@ export const COMMANDER_SCOUT = {
     'Find commanders, especially ones the person does not own yet, whose themes their collection already feeds, and propose two or three to buy and build.',
   text: `# Scouting commanders
 
-Only unprotected collections supply cards, protected copies are only mentioned, and card text, prices and legality come from the tools, never memory. The collection-survey playbook sizes commanders the person already owns; this one searches every Commander-legal commander, owned or not, and ranks them by how much of the collection feeds them.
+Only unprotected binders supply cards, protected copies are only mentioned, and card text, prices and legality come from the tools, never memory. The collection-survey playbook sizes commanders the person already owns; this one searches every Commander-legal commander, owned or not, and ranks them by how much of the collection feeds them.
 
 ## 0. Preflight
 
@@ -67,5 +67,5 @@ For each:
 - Gaps and extra purchases: weak roles, and cheap missing pieces with prices from get_cards.
 - Overlap: decks already using the same cards. Drafts don't reserve cards, but the person should know.
 
-Then wait for the person to choose. Don't buy anything or run create_deck until they pick; if they want to build it, continue with the new-deck playbook's step 3. An unowned commander stays unowned until it's in a collection, and check_deck reports it until then.`,
+Then wait for the person to choose. Don't buy anything or run create_deck until they pick; if they want to build it, continue with the new-deck playbook's step 3. An unowned commander stays unowned until it's in a binder, and check_deck reports it until then.`,
 };

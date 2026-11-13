@@ -35,30 +35,30 @@ describe('build_deck', () => {
       '  1 Ayula, Queen Among Bears (MH1) 155 *F*',
       '  1 Sol Ring (C21) 263',
       '  1 Llanowar Elves (M19) 314',
-      'Would put into decks/bears (new):',
+      'Would put into Bears (new):',
       '  1 Ayula, Queen Among Bears (MH1) 155 *F*',
       '  1 Sol Ring (C21) 263',
       '  1 Llanowar Elves (M19) 314',
       '  97 Forest',
       '(cards listed by name alone are untracked basics, from unlimited_basics)',
-      'Would create decks/bears and mark bears built.',
+      'Would create the deck binder Bears (protected) and mark bears built.',
       'Nothing changed; call again with apply: true once the person has sleeved the deck.',
     ]);
     expect(await rows('ManaBox_Collection')).toEqual(before);
     expect((await build()).text).toMatch(
-      /^Took from ManaBox_Collection:[\s\S]*Built bears: its cards are now in decks\/bears\.$/,
+      /^Took from ManaBox_Collection:[\s\S]*Built bears: its cards are now in the deck binder Bears\.$/,
     );
     expect(await rows('ManaBox_Collection')).toEqual([
       ['Sol Ring', 1, 'C21'],
       ['Llanowar Elves', 2, 'M19'],
     ]);
-    expect(await rows('decks/bears')).toEqual([
+    expect(await rows('Bears')).toEqual([
       ['Ayula, Queen Among Bears', 1, 'mh1'],
       ['Sol Ring', 1, 'c21'],
       ['Llanowar Elves', 1, 'm19'],
       ['Forest', 97, null],
     ]);
-    expect(await deck()).toMatchObject({ status: 'built', collection_destination: 'collections/decks/bears.txt' });
+    expect(await deck()).toMatchObject({ status: 'built', collection_destination: 'collections/Bears.txt' });
     expect((await callTool(owner, 'check_deck', { slug: 'bears' })).text).toMatch(/PASS/);
     expect((await callTool(owner, 'collection_changes', { since: '2026-01-01' })).text).toContain(
       'ManaBox_Collection: -1 Ayula, Queen Among Bears, -1 Llanowar Elves, -1 Sol Ring',
@@ -67,11 +67,11 @@ describe('build_deck', () => {
 
   it('refuses a built deck, a taken name, and a deck that fails its check', async () => {
     expect((await callTool(owner, 'build_deck', { slug: 'bears', to: 'ManaBox_Collection' })).text).toBe(
-      'ManaBox_Collection already exists; choose another with to',
+      'A binder named ManaBox_Collection already exists; choose another name with to',
     );
     await build();
     expect((await callTool(owner, 'build_deck', { slug: 'bears' })).text).toBe(
-      'bears is already built into collections/decks/bears.txt',
+      'bears is already built into collections/Bears.txt',
     );
     await callTool(owner, 'create_deck', { slug: 'short', commanders: ['Ayula, Queen Among Bears'] });
     expect((await callTool(owner, 'build_deck', { slug: 'short' })).text).toMatch(
@@ -81,9 +81,9 @@ describe('build_deck', () => {
 
   it('applies nothing when the collection changed after it was read', async () => {
     // Removing the only Ayula leaves the build short, so it plans nothing at all.
-    await callTool(owner, 'remove_cards', { collection: 'ManaBox_Collection', cards: '1 Ayula, Queen Among Bears' });
+    await callTool(owner, 'remove_cards', { binder: 'ManaBox_Collection', cards: '1 Ayula, Queen Among Bears' });
     expect((await build()).text).toMatch(/Not built/);
-    expect(await rows('decks/bears')).toBeUndefined();
+    expect(await rows('Bears')).toBeUndefined();
     expect((await deck()).status).toBe('draft');
   });
 });
@@ -97,7 +97,7 @@ describe('teardown_deck', () => {
       lands_to: 'binders/Lands',
     });
     expect(plan.text).toMatch(/Would return into ManaBox_Collection:/);
-    expect(await rows('decks/bears')).toHaveLength(4);
+    expect(await rows('Bears')).toHaveLength(4);
     const done = await callTool(owner, 'teardown_deck', { slug: 'bears', to: 'ManaBox_Collection', apply: true });
     expect(done.text.split('\n')).toEqual([
       'Returned into ManaBox_Collection:',
@@ -106,9 +106,9 @@ describe('teardown_deck', () => {
       '  1 Llanowar Elves (M19) 314',
       'Untracked basics (unlimited_basics), returned nowhere:',
       '  97 Forest',
-      'Tore down bears: deleted decks/bears, and the deck is a draft again.',
+      'Tore down bears: deleted Bears, and the deck is a draft again.',
     ]);
-    expect(await rows('decks/bears')).toBeUndefined();
+    expect(await rows('Bears')).toBeUndefined();
     expect(await rows('ManaBox_Collection')).toEqual([
       ['Sol Ring', 2, 'C21'],
       ['Llanowar Elves', 3, 'M19'],
@@ -124,9 +124,10 @@ describe('teardown_deck', () => {
       'bears isn’t built'.replace('’', "'"),
     );
     await build();
-    expect((await callTool(owner, 'teardown_deck', { slug: 'bears', to: 'decks/bears' })).text).toBe(
-      "decks/bears is this deck's own list",
+    expect((await callTool(owner, 'teardown_deck', { slug: 'bears', to: 'Bears' })).text).toBe(
+      "Bears is this deck's own binder",
     );
+    await callTool(owner, 'add_cards', { binder: 'precons/Box', cards: '1 Reanimate', create: true, protected: true });
     const done = await callTool(owner, 'teardown_deck', { slug: 'bears', to: 'precons/Box', apply: true });
     expect(done.text).toMatch(/WARNING: precons\/Box is protected, so no deck will count the returned cards$/);
   });
@@ -134,7 +135,7 @@ describe('teardown_deck', () => {
 
 describe('swap_deck', () => {
   beforeEach(async () => {
-    await callTool(owner, 'add_cards', { collection: 'ManaBox_Collection', cards: '1 Bearded Bear' });
+    await callTool(owner, 'add_cards', { binder: 'ManaBox_Collection', cards: '1 Bearded Bear' });
   });
 
   it('moves the in card into the deck’s own list and the out card back', async () => {
@@ -150,7 +151,7 @@ describe('swap_deck', () => {
     expect(plan.text).toMatch(/^Would swap in the deck: -1 Sol Ring, \+1 Bearded Bear\n/);
     const done = await callTool(owner, 'swap_deck', { ...args, apply: true });
     expect(done.text).toContain('WARNING: the upgrade adding Bearded Bear is done by the swap; remove it');
-    expect(await rows('decks/bears')).toEqual([
+    expect(await rows('Bears')).toEqual([
       ['Ayula, Queen Among Bears', 1, 'mh1'],
       ['Llanowar Elves', 1, 'm19'],
       ['Forest', 97, null],
@@ -181,7 +182,7 @@ describe('swap_deck', () => {
       /Upgrade cuts 1 Llanowar Elves, but the mainboard has 0\n[\s\S]*Not swapped: bears is built, so the swapped deck must pass check_deck\.$/,
     );
     expect((await callTool(owner, 'swap_deck', { ...args, out: ['Sol Ring'], to: undefined })).text).toBe(
-      'Name the collection the swapped-out cards go back to with to',
+      'Name the binder the swapped-out cards go back to with to',
     );
   });
 });

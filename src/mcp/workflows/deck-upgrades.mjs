@@ -24,7 +24,7 @@ Search every card for ones the person has no available copy of, for the deck's c
 - search_cards with commander: C, scope: unowned, nonland: true, role: ["removal"], sort: edhrec, max_price: 5, oracle: true.
 - search_cards with commander: C, scope: unowned, text: ["whenever you gain life"], sort: edhrec, oracle: true.
 
-- Protected copies: results note copies the person owns in protected collections ("+1 in ..., protected"). Mention them, since moving a copy may be cheaper than buying one.
+- Protected copies: results note copies the person owns in protected binders ("+1 in ..., protected"). Mention them, since moving a copy may be cheaper than buying one.
 - Never cite card text, legality or prices from memory. get_cards gives one card's text, legality, price and the decks already using it.
 
 ## 3. Pair each add with a cut

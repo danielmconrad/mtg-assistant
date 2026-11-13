@@ -12,6 +12,12 @@ live: `search_cards`, `get_cards`, `collection_summary`, `rank_commanders`, `lis
 is complete: decks can be created, edited, verified and priced, collections changed by text list or by
 uploading a file, and decks built, torn down and swapped physically.
 
+**Terms** follow ManaBox, Moxfield and Archidekt. A person's **collection** is every card they own, kept in
+**binders**: named sets of cards, each either an ordinary binder or a **deck binder** holding a built deck's
+cards, and each optionally **protected** (reported, but never used by other decks, as for precons). A **deck**
+is a list with its own structure (`schemas/deck.schema.json`); building one moves its cards into its deck
+binder. In D1 each binder is a row of `collections`, with `kind` and `protected`.
+
 ## Tools
 
 Each tool is mtg-manager's command of the same purpose, and answers with that command's text output:
@@ -23,8 +29,10 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   filters then decide, and a search that would still load over 4,000 cards asks for narrower filters.
 - **`get_cards`** (`card:show`): shows any card by name, owned or not. Misspellings get suggestions from every
   card's name.
-- **`collection_summary`** (`collection:check`): lists the person's collections, how fresh the card data is, and
-  any rows that match no printing.
+- **`collection_summary`** (`collection:check`): the collection's totals and each binder (deck binders and
+  protected ones marked), how fresh the card data is, and any rows that match no printing.
+- **`update_binder`**: renames a binder, protects or unprotects it, or deletes it once empty. A built deck's
+  binder changes only through the physical-deck tools.
 - **`rank_commanders`** (`collection:commanders`): ranks every Commander-legal commander, owned or not, by how much
   of the collection feeds its themes, compared with an average collection.
   - **What gets precomputed:** that comparison needs every Commander-legal card (about 32,000). The nightly
@@ -62,14 +70,14 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   saved as `create_deck` saves it.
   - **Concurrent edits:** a save is refused if the deck changed since it was read, so two edits can't
     silently overwrite each other.
-- **`add_cards`**, **`remove_cards`** and **`collection_changes`**: change one collection from a short text list
+- **`add_cards`**, **`remove_cards`** and **`collection_changes`**: change one binder from a short text list
   (`2 Sol Ring (C21) 263 *F*`), and see what changed since a date (`collection:diff`, from a log rather than Git).
   - **Lines** must each match a card, and a set and number pin the printing. Adding joins a row of the same
-    printing and finish; removing by name alone works only when the collection holds one printing of it.
+    printing and finish; removing by name alone works only when the binder holds one printing of it.
     Nothing changes unless every line can be applied.
-  - **New text lists** start with `create: true`, protected in `precons`, `decks` and `protected` folders as
-    migrated ones are. A built deck's own list changes only with its deck.
-  - **One transaction per change:** each change is one D1 batch. A guard moves every touched collection from
+  - **New binders** start with `create: true`, unprotected unless `protected: true`. Names are what ManaBox
+    allows ("Turtle Power!"), with `/` for folders. A built deck's binder changes only with its deck.
+  - **One transaction per change:** each change is one D1 batch. A guard moves every touched binder from
     the revision it was read at to a new one, and each other statement applies only if all the guards did,
     so two changes at once can't both apply to the same starting point.
   - **The log:** each change writes one `collection_events` row per card, with the tool, an optional note and
@@ -78,30 +86,30 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   built deck): move a deck's real cards when the person says they've sleeved, unsleeved or swapped them.
   - **Plan first:** each shows the copies it would move and changes nothing unless called with `apply: true`.
   - **Building** needs the deck to pass `check_deck` with non-proxy copies. It takes them with mtg-manager's
-    `planBuild` (pinned printing, then nonfoil, then the most-held printing) into a new text list of its own,
-    `decks/<slug>` by default, and names drafts that may come up short. Untracked basics are listed by name.
-  - **Tearing down** returns the list's cards to `to` (lands to `lands_to`), deletes the list and makes the deck
-    a draft again. **Swapping** moves each in card from the other collections into the list and each out card
+    `planBuild` (pinned printing, then nonfoil, then the most-held printing) into a new protected deck binder,
+    named after the deck by default, and names drafts that may come up short. Untracked basics are listed by name.
+  - **Tearing down** returns the deck binder's cards to `to` (lands to `lands_to`), deletes it and makes the deck
+    a draft again. **Swapping** moves each in card from the other binders into the deck binder and each out card
     back to `to`, recording the swap as `update_deck` does; the swapped deck must still pass `check_deck`.
-  - **One transaction:** every touched collection and the deck itself are guarded by revision in one D1 batch,
+  - **One transaction:** every touched binder and the deck itself are guarded by revision in one D1 batch,
     so a move applies whole or not at all, and the log records it under the tool's name.
-- **`get_download_link`**: a link to one collection, or every collection as a zip with a `manifest.json` or
-  (`combine`) as one file, as a text list (the default, since ManaBox imports text as a collection or a deck),
-  a ManaBox CSV (every column it was imported with, so it reads back; combined, its `Binder Name` column names
-  each row's collection) or a Moxfield CSV. Purchase
+- **`get_download_link`**: a link to the whole collection, as a zip with a file per binder and a `manifest.json`
+  or (`combine`) as one file, or to one binder, as a text list (the default, since ManaBox imports text as a
+  collection or a deck), a ManaBox CSV (every column it was imported with, so it reads back, with `Binder Name`
+  and `Binder Type` from the binder) or a Moxfield CSV. Purchase
   prices are left out unless asked for. The link (`/download?token=...`) is HMAC-signed with
   `DOWNLOAD_SIGNING_KEY` (`src/links.mjs`), expires after 15 minutes and works three times, counted in D1's
   `link_uses`. Cloudflare Access guards it, and the Access identity must be the link's own person. The file is
   built when the link is opened and never stored. Each download or refusal is written to `auth_events`.
 - **`get_upload_link`** and the upload page: a link to `/upload`, where the person picks a ManaBox CSV export
-  or a text list (5 MB at most), a collection (a new name starts one, in the file's format) and whether to merge
+  or a text list (5 MB at most), a binder (a new name starts one, in the file's format) and whether to merge
   the file into it or replace it.
   - **The link** is signed with `UPLOAD_SIGNING_KEY`, lasts 10 minutes and allows three previews. Access guards
     the page, and the Access identity must be the link's person. Posts must come from the page's own origin.
   - **Preview first:** the page lists every card whose count would change and the decks naming them. The raw
     file is kept in the private R2 bucket (`UPLOADS`; no public access, no r2.dev URL), and a row in `uploads`
     holds the preview with its own CSRF token.
-  - **Applying** works once per preview. It replans from the stored file and applies only if the collection is
+  - **Applying** works once per preview. It replans from the stored file and applies only if the binder is
     still at the revision it was previewed at, so what applies is what was shown. ManaBox's other columns are
     kept for downloads, and the log records the net change per card (`source: upload`), never prices.
   - **Large files:** rows are written as JSON chunks through SQLite's `json_each`, so thousands of rows take a
@@ -198,10 +206,11 @@ it.
   `schemas/deck.schema.json`; a test fails if you forget.
 - **`src/storage/cards.mjs`:** loads just the cards a request needs from D1 and rebuilds mtg-manager's in-memory
   cache from them, so `src/core` runs unchanged. A test checks every rebuilt card against `toCard`.
-- **`src/storage/collections.mjs`, `decks.mjs`:** each person's collections and decks. They're read into the
-  collections model mtg-manager built from files, and every query filters on the signed-in user. Collection
-  paths keep the `collections/` prefix without the owner's folder (`collections/binders/Alphabetized.txt`),
-  so a deck's `collection_source` patterns match as they did. `src/core/glob.mjs` is a pure-JavaScript port
+- **`src/storage/collections.mjs`, `decks.mjs`:** each person's binders and decks. They're read into the
+  collections model mtg-manager built from files, and every query filters on the signed-in user. Binder paths
+  keep the `collections/` prefix without the owner's folder (`collections/binders/Alphabetized.txt`), so a
+  deck's `collection_source` patterns match as they did; tools take binder names and turn them into those
+  patterns. Only protected binders hold cards back from decks. `src/core/glob.mjs` is a pure-JavaScript port
   of the Node glob matching mtg-manager used, and a test compares the two.
 - **`tests/core/`:** mtg-manager's own tests for the ported modules, now run with Vitest.
 
@@ -222,6 +231,9 @@ The script works like this:
 - **What `--apply` does:** it replaces those people's collections and decks, then reads everything back
   through the server's loaders to verify it.
 - **Protected collections:** anything under a folder named `precons`, `decks` or `protected`.
+- **ManaBox files** load as one binder each. Migration 0010 split the ones already on the server into one binder
+  per ManaBox binder, with ManaBox decks as protected deck binders; for anyone new, import a ManaBox export on
+  the upload page instead.
 - **Text lists:** rows are matched to printings in the target's card data, so run it after the ingest.
 - **Reserved accounts:** a person who has never signed in gets one, which their first sign-in claims and pins to
   their Google account.

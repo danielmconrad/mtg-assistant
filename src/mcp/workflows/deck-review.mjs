@@ -31,7 +31,7 @@ Repeat until verify_deck passes and every NOTE it prints is explained:
 ## Changes
 
 - Draft decks: update_deck with a swap operation (out, in, reason). The reason becomes the out card's considered reason and the notes of a new history entry, and the in card takes the out card's role. Use add and remove for anything that isn't one-for-one; give remove a reason so the card doesn't come back unexplained in deck_candidates.
-- Built decks (whose cards sit in their own collection) keep their card list: change it only when the person has swapped the physical cards, with swap_deck (out, in, reasons, and to for where the out cards go back).
+- Built decks (whose cards sit in their deck binder) keep their card list: change it only when the person has swapped the physical cards, with swap_deck (out, in, reasons, and to for where the out cards go back).
 - Records: reviews go in history (add_history); actual games in playtests (add_playtest). A few games don't make statistics.
 - Ask before big rewrites; small agreed swaps can just be made.
 

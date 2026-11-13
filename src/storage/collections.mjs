@@ -1,16 +1,8 @@
-// A person's collections, read from D1 into the model mtg-manager's workspace built from files
-// ({ sources, available, protected, availableNames, ... }), so src/core runs unchanged. Every query
-// filters on userId, which callers take from the verified token, never from tool arguments.
-import { holdDeckCards } from '../core/collection.mjs';
+// A person's binders, read from D1 into the model mtg-manager's workspace built from collection files
+// ({ sources, available, protected, availableNames, ... }), so src/core runs unchanged. Each row of the
+// collections table is a binder; the person's collection is every card in them. Every query filters on
+// userId, which callers take from the verified token, never from tool arguments.
 import { pathMatches } from '../core/glob.mjs';
-
-// Collections in these folders (precons, built decks) are protected: reported, but never used by decks.
-const PROTECTED_FOLDERS = new Set(['precons', 'decks', 'protected']);
-export const isProtectedPath = (path) =>
-  path
-    .split('/')
-    .slice(0, -1)
-    .some((folder) => PROTECTED_FOLDERS.has(folder));
 
 // One stored row as mtg-manager's collection row.
 function toRow(entry, collection) {
@@ -31,7 +23,7 @@ function toRow(entry, collection) {
 export async function listCollections(db, userId) {
   const { results } = await db
     .prepare(
-      `SELECT c.id, c.name, c.path, c.format, c.protected, c.updated_at, c.revision,
+      `SELECT c.id, c.name, c.path, c.format, c.protected, c.kind, c.updated_at, c.revision,
               COUNT(e.id) AS row_count, COALESCE(SUM(e.quantity), 0) AS copies,
               COALESCE(SUM(CASE WHEN e.scryfall_id IS NULL THEN 1 ELSE 0 END), 0) AS unresolved_rows
        FROM collections c LEFT JOIN collection_entries e ON e.collection_id = c.id AND e.user_id = c.user_id
@@ -54,9 +46,11 @@ async function entriesOf(db, userId, collectionIds) {
   return byCollection;
 }
 
-// The collections a request reads, as mtg-manager's loadCollections returned them. only holds path
+// The binders a request reads, as mtg-manager's loadCollections returned collections. only holds path
 // patterns (a deck's collection_source), matched as mtg-manager matched them; own is a built deck's
-// collection_destination, always read and never protected.
+// collection_destination, always read and never protected. Only the copies in protected binders are held
+// back: mtg-manager's rule that a card in any deck binder holds back every copy (holdDeckCards) belonged to
+// single ManaBox files holding many binders, which are binders of their own here.
 export async function loadCollections(db, userId, { only = [], own } = {}) {
   const all = await listCollections(db, userId);
   const isOwn = (collection) => own !== undefined && (collection.path === own || collection.name === own);
@@ -74,11 +68,9 @@ export async function loadCollections(db, userId, { only = [], own } = {}) {
     isProtected: collection.protected === 1 && !isOwn(collection),
     rows: entries.get(collection.id).map((entry) => toRow(entry, collection)),
   }));
-  const split = sources.map((source) => {
-    if (source.isProtected) return { free: [], held: source.rows };
-    const { free, held } = holdDeckCards(source.rows);
-    return { free, held: held.map((row) => ({ ...row, collection: `${source.name} decks` })) };
-  });
+  const split = sources.map((source) =>
+    source.isProtected ? { free: [], held: source.rows } : { free: source.rows, held: [] },
+  );
   const matchesNothing = (pattern) => !all.some((collection) => pathMatches(collection.path, pattern));
   return {
     sources,

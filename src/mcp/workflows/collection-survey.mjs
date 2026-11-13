@@ -6,7 +6,7 @@ export const COLLECTION_SURVEY = {
     'Find which commanders and themes the collection supports, sizing each by role and engine depth, and propose two or three directions.',
   text: `# Surveying the collection
 
-Only unprotected collections supply cards; protected copies (precons, built decks) are only mentioned. Every tool here is read-only. This sizes commanders the person owns; for commanders they could buy, ranked by how much of the collection feeds them, follow the commander-scout playbook. Start with counts and groups, and list cards only once a query is narrow: unfiltered lists run to hundreds of lines.
+Only unprotected binders supply cards; protected copies (precons, built decks) are only mentioned. Every tool here is read-only. This sizes commanders the person owns; for commanders they could buy, ranked by how much of the collection feeds them, follow the commander-scout playbook. Start with counts and groups, and list cards only once a query is narrow: unfiltered lists run to hundreds of lines.
 
 ## 1. Find commander candidates
 

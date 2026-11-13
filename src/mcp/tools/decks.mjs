@@ -182,7 +182,7 @@ export const DECK_TOOLS = [
     name: 'check_deck',
     title: 'Check a deck',
     description:
-      'Check a deck against its format’s rules (size, commanders, color identity, bans, copy limits, bracket) and against the person’s collections (ownership), listing every error and note.',
+      'Check a deck against its format’s rules (size, commanders, color identity, bans, copy limits, bracket) and against the person’s collection (ownership), listing every error and note.',
     schema: z.object({ slug }).strict(),
     handler: checkDeckTool,
   },
@@ -236,7 +236,7 @@ export const DECK_TOOLS = [
     name: 'deck_upgrades',
     title: 'Price upgrades',
     description:
-      'Prices what a deck still needs to buy (its upgrade adds and any cards the collections can’t supply) at the cheapest recent price, against its budget. Unknown prices are reported, never counted as zero.',
+      'Prices what a deck still needs to buy (its upgrade adds and any cards the collection can’t supply) at the cheapest recent price, against its budget. Unknown prices are reported, never counted as zero.',
     schema: z.object({ slug }).strict(),
     handler: deckUpgradesTool,
   },
