@@ -61,8 +61,11 @@ async function post(fields, { email = OWNER, origin = ORIGIN } = {}) {
   });
 }
 const file = (text, name) => new File([text], name, { type: 'text/plain' });
-const previewOf = async (token, text, name, fields = {}) =>
-  post({ step: 'preview', token, collection: 'ManaBox_Collection', mode: 'merge', file: file(text, name), ...fields });
+const previewOf = async (token, text, name, fields = {}, options = {}) =>
+  post(
+    { step: 'preview', token, collection: 'ManaBox_Collection', mode: 'merge', file: file(text, name), ...fields },
+    options,
+  );
 const formOf = (html) => ({
   upload: html.match(/name="upload" value="([^"]+)"/)[1],
   csrf: html.match(/name="csrf" value="([^"]+)"/)[1],
@@ -78,6 +81,8 @@ describe('upload links and the page', () => {
     const html = await page.text();
     expect(html).toContain('name="collection" value="binders/New"');
     expect(html).toContain('enctype="multipart/form-data"');
+    // With no-referrer, browsers post the form with Origin: null, which posted() refuses.
+    expect(page.headers.get('Referrer-Policy')).toBe('same-origin');
     expect((await open(url, OTHER)).status).toBe(403);
     expect((await call(url.pathname + url.search)).status).toBe(403);
     const tampered = new URL(url);
@@ -89,6 +94,18 @@ describe('upload links and the page', () => {
       'malformed token',
     ]);
   });
+
+  it('refuses posts from another origin, or with Origin: null, before using the link', async () => {
+    const { token } = await linkFor();
+    for (const origin of ['null', 'https://evil.example']) {
+      expect((await previewOf(token, '1 Sol Ring\n', 'cards.txt', {}, { origin })).status).toBe(403);
+    }
+    expect((await events('upload_refused')).map((event) => JSON.parse(event.detail).reason)).toEqual([
+      'cross-origin post',
+      'cross-origin post',
+    ]);
+    expect((await previewOf(token, '1 Sol Ring\n', 'cards.txt')).status).toBe(200);
+  });
 });
 
 describe('merging', () => {
@@ -97,6 +114,7 @@ describe('merging', () => {
     const before = await rows('ManaBox_Collection');
     const preview = await previewOf(token, '2 Lightning Bolt\n1 Sol Ring (C21) 263\n', 'cards.txt');
     expect(preview.status).toBe(200);
+    expect(preview.headers.get('Referrer-Policy')).toBe('same-origin');
     const html = await preview.text();
     expect(html).toContain('<h1>Merge ManaBox_Collection?</h1>');
     expect(html).toContain('<li>+2 Lightning Bolt</li><li>+1 Sol Ring</li>');
