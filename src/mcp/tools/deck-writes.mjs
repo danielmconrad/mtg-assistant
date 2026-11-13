@@ -349,8 +349,9 @@ export const draftSchema = z
   })
   .strict();
 
-// Creates the deck and returns the reply's lines. import_deck creates decks through it too.
-export async function draftDeckLines(args, { db, user, now }) {
+// Creates the deck and returns the reply's lines. import_deck creates decks through it too, and saves a
+// deck binder as a built deck whose cards are that binder (builtInto, the binder's path).
+export async function draftDeckLines(args, { db, user, now }, { builtInto } = {}) {
   const collectionSource = args.collection_source && checkGlobs(args.collection_source);
   const names = await canonicalNames(db, [...args.commanders, ...args.mainboard.map((entry) => entry.name)]);
   let deck;
@@ -373,12 +374,13 @@ export async function draftDeckLines(args, { db, user, now }) {
     throw new ToolError(error.message.replace('--commander "<name>" (repeat it for a partner pair)', 'commanders'));
   }
   for (const entry of args.mainboard) deck = applyOperation(deck, { op: 'add', ...entry }, { names, now });
+  if (builtInto) deck = { ...deck, status: 'built', collection_destination: builtInto };
   checked(deck, args.slug);
   const notes = await recordBrackets(db, deck, { listChanged: false, judged: false });
   if (!(await insertDeck(db, user.id, args.slug, deck, now))) {
     throw new ToolError(`A deck named ${args.slug} already exists; update_deck changes it`);
   }
-  return [`Created ${args.slug} (${deck.format}, draft). ${sizeLine(deck)}`, ...notes];
+  return [`Created ${args.slug} (${deck.format}, ${deck.status}). ${sizeLine(deck)}`, ...notes];
 }
 
 const draftDeck = async (args, ctx) => textResult(await draftDeckLines(args, ctx));

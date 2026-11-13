@@ -38,9 +38,9 @@
       "items": { "$ref": "#/definitions/text" }
     },
     "collection_destination": {
-      "description": "The text list under collections/ holding this deck's physical cards, written by deck:build --apply. Always read for this deck and never protected from it.",
+      "description": "The binder under collections/ (a text list or ManaBox CSV) holding this deck's physical cards, written by deck:build --apply. Always read for this deck and never protected from it.",
       "type": "string",
-      "pattern": "^collections/(?!(?:.*/)?\\.\\.?(?:/|$))(?:[^/\\\\]+/)*[^/\\\\]+\\.txt$"
+      "pattern": "^collections/(?!(?:.*/)?\\.\\.?(?:/|$))(?:[^/\\\\]+/)*[^/\\\\]+\\.(?:txt|csv)$"
     },
     "commanders": { "type": "array", "maxItems": 2, "items": { "$ref": "#/definitions/card" } },
     "mainboard": { "type": "array", "items": { "$ref": "#/definitions/card" } },
