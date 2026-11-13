@@ -331,10 +331,10 @@ export const draftSchema = z
     format: z.enum(['commander', 'custom-dollar-brawl', 'casual-60']).default('commander'),
     commanders: z.array(cardName).max(2).default([]),
     primer: text.optional().describe('How the deck wins, in a sentence or two'),
-    target_bracket: bracket.optional(),
-    budget: money.optional(),
-    max_card_price: money.optional(),
-    allow_proxies: z.boolean().default(false),
+    target_bracket: bracket.optional().describe('Commander bracket, 1 to 5'),
+    budget: money.optional().describe('What the cards still to buy may cost in all'),
+    max_card_price: money.optional().describe('The most any one card may cost'),
+    allow_proxies: z.boolean().default(false).describe('Proxies count as owned copies'),
     unlimited_basics: z.boolean().default(false).describe('The person has basics their collection doesn’t list'),
     collection_source: z
       .array(z.string().min(1).max(200))

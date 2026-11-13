@@ -428,7 +428,7 @@ export const PHYSICAL_TOOLS = [
       .object({
         slug,
         to: binderName.describe('The binder the cards go back to; a new one if it doesn’t exist'),
-        lands_to: binderName.optional(),
+        lands_to: binderName.optional().describe('Where lands go back instead, if given'),
         apply,
       })
       .strict(),
@@ -443,11 +443,11 @@ export const PHYSICAL_TOOLS = [
     schema: z
       .object({
         slug,
-        out: z.array(cardName).min(1).max(20),
-        in: z.array(cardName).min(1).max(20),
+        out: z.array(cardName).min(1).max(20).describe('Cards leaving the deck, one copy each'),
+        in: z.array(cardName).min(1).max(20).describe('Their replacements, in the same order'),
         reasons: z.array(z.string().min(1).max(500)).max(20).optional().describe('Why each out card left, in order'),
         to: binderName.optional().describe('The binder the swapped-out cards go back to'),
-        lands_to: binderName.optional(),
+        lands_to: binderName.optional().describe('Where lands go back instead, if given'),
         apply,
       })
       .strict(),

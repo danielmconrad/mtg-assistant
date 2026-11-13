@@ -266,7 +266,7 @@ export const COLLECTION_WRITE_TOOLS = [
     name: 'add_cards',
     title: 'Add cards to a binder',
     description:
-      'Add copies to one of the person’s binders from a short text list (Moxfield/Archidekt/Arena lines), after they say they’ve got the cards. Every line must match a card; set and number pin the printing. create: true starts a new binder (protected: true protects it). Logged for collection_changes.',
+      'Add copies to one of the person’s binders from a short text list (Moxfield/Archidekt/Arena lines), after they say they’ve got the cards. To bring a whole binder over from another app, use import_binder. Every line must match a card; set and number pin the printing. create: true starts a new binder (protected: true protects it). Logged for collection_changes.',
     schema: z
       .object({
         binder: binderName,

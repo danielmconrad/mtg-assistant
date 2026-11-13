@@ -190,7 +190,7 @@ export const DECK_TOOLS = [
     name: 'export_deck',
     title: 'Export a decklist',
     description:
-      'A paste-ready decklist for Moxfield, Archidekt or plain text, choosing the printings the person owns.',
+      'A paste-ready decklist for Moxfield, Archidekt, ManaBox or plain text, choosing the printings the person owns.',
     schema: z.object({ slug, format: z.enum(EXPORT_FORMAT_NAMES).default('moxfield'), upgrades }).strict(),
     handler: exportDeckTool,
   },

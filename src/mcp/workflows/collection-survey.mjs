@@ -47,7 +47,7 @@ Add sort: edhrec or sort: price to see the most played or most valuable matches 
 
 ## 5. Note protected staples
 
-Name staples that exist only in protected collections, so the person can choose to move a copy: search_cards with include_protected: true and name: "^(Sol Ring|Arcane Signet|Command Tower|Swords to Plowshares|Path to Exile|Cultivate|Beast Within|Counterspell)$".
+Name staples that exist only in protected binders, so the person can choose to move a copy: search_cards with include_protected: true and name: "^(Sol Ring|Arcane Signet|Command Tower|Swords to Plowshares|Path to Exile|Cultivate|Beast Within|Counterspell)$".
 
 ## 6. Propose two or three directions, then stop
 
