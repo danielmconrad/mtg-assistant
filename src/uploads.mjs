@@ -472,7 +472,16 @@ async function posted(request, env, config, context) {
   return STEPS[step](request, env, { ...context, form });
 }
 
+// The upload pages post their own forms, and posted() refuses a post whose Origin isn't this server. Under
+// the site-wide no-referrer policy browsers send Origin: null on those posts, so these pages use
+// same-origin: the real Origin on their own posts, and still no referrer to any other site.
 export async function handleUpload(request, env, config) {
+  const response = await uploadResponse(request, env, config);
+  response.headers.set('Referrer-Policy', 'same-origin');
+  return response;
+}
+
+async function uploadResponse(request, env, config) {
   const now = Date.now();
   const access = await verifyAccess(request, config);
   const refuse = async (reason, message = REFUSED) => {
