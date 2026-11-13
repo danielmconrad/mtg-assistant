@@ -4,6 +4,8 @@
 // OPTIONS lets browser-based MCP clients (such as MCP Inspector) send CORS preflights, which the OAuth
 // library answers; /authorize and /callback are page navigations, so they never get one.
 export const ROUTES = [
+  // The public homepage (src/home.mjs): how to connect Claude.
+  { path: '/', methods: ['GET'], limiter: 'RL_PUBLIC' },
   { path: '/.well-known/oauth-authorization-server', methods: ['GET', 'OPTIONS'], limiter: 'RL_PUBLIC' },
   { path: '/.well-known/oauth-protected-resource', prefix: true, methods: ['GET', 'OPTIONS'], limiter: 'RL_PUBLIC' },
   { path: '/register', methods: ['POST', 'OPTIONS'], limiter: 'RL_REGISTER' },

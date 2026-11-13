@@ -30,6 +30,7 @@ function fakeDeployment(overrides = {}) {
         headers: { location: 'https://team.cloudflareaccess.com/cdn-cgi/access/login' },
       });
     }
+    if (key === 'GET /') return new Response(`<code class="url">${ORIGIN}/mcp</code>`, { headers: SECURE });
     if (key === 'POST /register') return new Response(null, { status: (registrations += 1) > 3 ? 429 : 400 });
     return new Response(null, { status: 403 });
   };
@@ -61,7 +62,8 @@ describe('post-deploy checks', () => {
   });
 
   it.each([
-    ['an open root path', { 'GET /': () => new Response('hello') }, 'unknown paths'],
+    ['an open unknown path', { 'GET /admin': () => new Response('hello') }, 'unknown paths'],
+    ['a blocked homepage', { 'GET /': () => new Response(null, { status: 403 }) }, 'homepage'],
     ['missing Access', { 'GET /authorize': () => new Response('consent') }, 'Access'],
     [
       'a WAF that blocks Access sign-ins',

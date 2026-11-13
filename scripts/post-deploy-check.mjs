@@ -48,11 +48,20 @@ export function buildChecks(origin, fetchImpl = fetch) {
     [
       'unknown paths are blocked',
       async () => {
-        for (const path of ['/', '/admin', '/.env', '/wp-login.php']) {
+        for (const path of ['/admin', '/.env', '/wp-login.php']) {
           const { status } = await get(path);
           if (status !== 403 && status !== 404) return `${path} answered ${status}`;
         }
         return null;
+      },
+    ],
+    [
+      'the homepage is public',
+      async () => {
+        const response = await get('/');
+        if (response.status !== 200) return `/ answered ${response.status}`;
+        const html = await response.text();
+        return html.includes(`${origin}/mcp`) ? null : 'the homepage doesn’t give the connector URL';
       },
     ],
     [

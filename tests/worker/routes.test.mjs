@@ -7,9 +7,19 @@ const events = async (type) =>
 
 describe('route allowlist', () => {
   it('404s paths outside the route map', async () => {
-    for (const path of ['/', '/admin', '/.env', '/mcp/../admin', '/wp-login.php', '/uploads']) {
+    for (const path of ['/admin', '/.env', '/mcp/../admin', '/wp-login.php', '/uploads']) {
       expect((await call(path)).status, path).toBe(404);
     }
+  });
+
+  it('serves the homepage to anyone, with this server’s connector URL', async () => {
+    const response = await call('/');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toContain('text/html');
+    const html = await response.text();
+    expect(html).toContain(`<code class="url">${RESOURCE}</code>`);
+    expect(html).toContain(`claude mcp add --transport http mtg-assistant ${RESOURCE}`);
+    expect((await call('/', { method: 'POST' })).status).toBe(405);
   });
 
   it('405s methods a route does not take', async () => {
