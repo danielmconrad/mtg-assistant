@@ -264,6 +264,28 @@ describe('collection_summary', () => {
   });
 });
 
+describe('rank_commanders', () => {
+  it('ranks commanders from the precomputed pool, noting ownership and the decks they lead', async () => {
+    const { text } = await callTool(owner, 'rank_commanders', { min_cards: 0 });
+    expect(text).toMatch(/^1\. Ayula, Queen Among Bears \{1\}\{G\} \[G\] — 1 owned; leads bears \(/m);
+    expect(text).toMatch(/on-theme cards of \d+ owned spells/);
+    expect(text).toMatch(/commanders shown, by lift, of \d+ the filters keep/);
+  });
+
+  it('applies identity, ownership and theme filters', async () => {
+    expect((await callTool(owner, 'rank_commanders', { min_cards: 0, identity: 'B' })).text).not.toContain('Ayula');
+    expect((await callTool(owner, 'rank_commanders', { min_cards: 0, ownership: 'unowned' })).text).not.toContain(
+      'Ayula',
+    );
+    expect((await callTool(owner, 'rank_commanders', { min_cards: 0, theme: 'bear' })).text).toContain('Ayula');
+    expect((await callTool(owner, 'rank_commanders', { min_cards: 0, theme: 'treasure' })).text).not.toContain('Ayula');
+  });
+
+  it('refuses unsafe patterns', async () => {
+    expect(await callTool(owner, 'rank_commanders', { theme: '(a*)*' })).toMatchObject({ isError: true });
+  });
+});
+
 describe('deck tools', () => {
   it('list, show, stats, check and export a deck', async () => {
     expect((await callTool(owner, 'list_decks')).text).toBe('bears: Bears (commander, draft)');
@@ -303,6 +325,14 @@ const ISOLATION = {
   get_cards: [{ names: ['Llanowar Elves'] }, (text) => expect(text).toMatch(/Copies: 0 available[\s\S]*Decks: none/)],
   collection_summary: [{}, (text) => expect(text).toContain('No collections yet.')],
   list_decks: [{}, (text) => expect(text).toBe('No decks yet.')],
+  rank_commanders: [
+    { min_cards: 0 },
+    (text) => {
+      expect(text).toMatch(/Ayula, Queen Among Bears .* — unowned \(/);
+      expect(text).toContain('0 on-theme cards of 0 owned spells');
+      expect(text).not.toContain('leads');
+    },
+  ],
   show_deck: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
   deck_stats: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
   check_deck: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],

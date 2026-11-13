@@ -1,7 +1,9 @@
 // Turns card-model printings (src/core/scryfall.mjs toCard) into the rows of migrations/0002_cards.sql,
 // each with a hash of its values, and works out which rows an ingest must write or delete. Web APIs
 // only, so the workerd tests can load it too.
-import { normalizeName } from '../../src/core/card.mjs';
+import { canBeCommander, isLand, normalizeName } from '../../src/core/card.mjs';
+import { creatureTypeList, vocabularyOf } from '../../src/core/commander-themes.mjs';
+import { poolProfile } from '../../src/core/commanders.mjs';
 
 // Fields that differ between printings of one card; every other field is the card's.
 const PRINTING_FIELDS = new Set([
@@ -136,6 +138,7 @@ export async function buildRows(printings) {
     all.map((printing) => withHash(printingRow(printing, base.get(printing.oracleId)))),
   );
   const prices = await Promise.all(all.map((printing) => withHash(priceRow(printing))));
+  const pool = await commanderPoolRows([...base.values()]);
   // Every format any card is judged in, so readers can fill in not_legal for the rest.
   const formats = [...new Set(all.flatMap((printing) => Object.keys(printing.legalities)))].sort();
   return {
@@ -143,7 +146,32 @@ export async function buildRows(printings) {
     cards: cards.sort(byKey('oracle_id')),
     printings: printingRows.sort(byKey('id')),
     prices: prices.sort(byKey('printing_id')),
+    commander_pool: pool.rows.sort(byKey('oracle_id')),
+    creatureTypes: pool.types,
   };
+}
+
+// The commander-ranking pool: every Commander-legal card (as src/core/commanders.mjs
+// commanderPoolCards picks them, from each card's base printing) with its profile, and the creature-type
+// list the profiles were found with.
+async function commanderPoolRows(baseCards) {
+  const legal = baseCards.filter((card) => card.legalities.commander === 'legal');
+  const types = creatureTypeList(legal);
+  const vocabulary = vocabularyOf(types);
+  const rows = await Promise.all(
+    legal.map((card) => {
+      const { themes, tribes } = poolProfile(card, vocabulary);
+      return withHash({
+        oracle_id: card.oracleId,
+        identity: identityMask(card.colorIdentity),
+        themes,
+        tribes: JSON.stringify([...tribes].sort()),
+        is_land: isLand(card) ? 1 : 0,
+        can_command: canBeCommander(card) ? 1 : 0,
+      });
+    }),
+  );
+  return { rows, types };
 }
 
 // The rows to write (new or changed) and the keys to delete, against current { key: hash }.

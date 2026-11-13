@@ -208,44 +208,88 @@ const cheapestIn = (currency) => `SELECT id FROM (
     WHERE (playable OR NOT any_playable) AND ${currency} > 0
   ) WHERE n = 1`;
 
+// Cards in scope (SQL selecting oracle IDs), each with only the printings src/core reads: Scryfall's
+// default, the cheapest in USD and in EUR, and any further printings unions select (SQL selecting
+// printing IDs, which may use the scope CTE). Parameters are bound in the order the SQL uses them: the
+// scope's, then the unions'.
+async function keyPrintingRows(db, { scope, scopeParams = [], unions = [], unionParams = [] }) {
+  const printingsSql = `
+    WITH scope AS (${scope}),
+    priced AS (
+      SELECT p.id, p.oracle_id, pr.usd, pr.eur, ${PLAYABLE} AS playable,
+             MAX(${PLAYABLE}) OVER (PARTITION BY p.oracle_id) AS any_playable
+      FROM printings p JOIN scope s ON s.oracle_id = p.oracle_id LEFT JOIN prices pr ON pr.printing_id = p.id
+    ),
+    wanted AS (
+      SELECT p.id FROM printings p JOIN scope s ON s.oracle_id = p.oracle_id WHERE p.is_default = 1
+      UNION ${cheapestIn('usd')}
+      UNION ${cheapestIn('eur')}
+      ${unions.map((union) => `UNION ${union}`).join('\n      ')}
+    )
+    SELECT ${PRINTING_COLUMNS} FROM printings p LEFT JOIN prices pr ON pr.printing_id = p.id
+    WHERE p.id IN (SELECT id FROM wanted) ORDER BY p.rowid`;
+  const [cards, printings] = await Promise.all([
+    db
+      .prepare(`SELECT ${CARD_COLUMNS} FROM cards c WHERE c.oracle_id IN (${scope})`)
+      .bind(...scopeParams)
+      .all(),
+    db
+      .prepare(printingsSql)
+      .bind(...scopeParams, ...unionParams)
+      .all(),
+  ]);
+  return joinRows(cards.results, printings.results);
+}
+
 // Every card a person has any copy of, protected collections included, with only the printings
 // src/core reads: the ones they own, Scryfall's default, the cheapest in USD and in EUR, and, for a
 // search by set or rarity, the ones in those sets and rarities. That's a few thousand printings
 // instead of every printing of every owned card (about 17,000 for one collection), with the same
 // prices, defaults and printing choices.
-export async function loadOwnedRows(db, userId, { sets = [], rarities = [] } = {}) {
+export function loadOwnedRows(db, userId, { sets = [], rarities = [] } = {}) {
   const marks = (values) => values.map(() => '?').join(', ');
   const matching = [
     sets.length ? `p.set_code IN (${marks(sets)})` : null,
     rarities.length ? `p.rarity IN (${marks(rarities)})` : null,
   ].filter(Boolean);
-  const matchingUnion = matching.length
-    ? `UNION SELECT p.id FROM printings p JOIN owned o ON o.oracle_id = p.oracle_id WHERE ${matching.join(' AND ')}`
-    : '';
-  const printingsSql = `
-    WITH owned AS (${OWNED_ORACLE_IDS}),
-    priced AS (
-      SELECT p.id, p.oracle_id, pr.usd, pr.eur, ${PLAYABLE} AS playable,
-             MAX(${PLAYABLE}) OVER (PARTITION BY p.oracle_id) AS any_playable
-      FROM printings p JOIN owned o ON o.oracle_id = p.oracle_id LEFT JOIN prices pr ON pr.printing_id = p.id
-    ),
-    wanted AS (
-      SELECT scryfall_id AS id FROM collection_entries WHERE user_id = ? AND scryfall_id IS NOT NULL
-      UNION SELECT p.id FROM printings p JOIN owned o ON o.oracle_id = p.oracle_id WHERE p.is_default = 1
-      UNION ${cheapestIn('usd')}
-      UNION ${cheapestIn('eur')}
-      ${matchingUnion}
-    )
-    SELECT ${PRINTING_COLUMNS} FROM printings p LEFT JOIN prices pr ON pr.printing_id = p.id
-    WHERE p.id IN (SELECT id FROM wanted) ORDER BY p.rowid`;
-  const [cards, printings] = await Promise.all([
-    db.prepare(`SELECT ${CARD_COLUMNS} FROM cards c WHERE c.oracle_id IN (${OWNED_ORACLE_IDS})`).bind(userId).all(),
-    db
-      .prepare(printingsSql)
-      .bind(userId, userId, ...sets, ...rarities)
-      .all(),
+  return keyPrintingRows(db, {
+    scope: OWNED_ORACLE_IDS,
+    scopeParams: [userId],
+    unions: [
+      'SELECT scryfall_id AS id FROM collection_entries WHERE user_id = ? AND scryfall_id IS NOT NULL',
+      ...(matching.length
+        ? [`SELECT p.id FROM printings p JOIN scope s ON s.oracle_id = p.oracle_id WHERE ${matching.join(' AND ')}`]
+        : []),
+    ],
+    unionParams: [userId, ...sets, ...rarities],
+  });
+}
+
+// The commanders commander ranking considers (commander_pool.can_command), within an identity when
+// given, with the printings it reads: the default and the cheapest.
+export const loadCommanderRows = (db, { identityMask } = {}) =>
+  keyPrintingRows(db, {
+    scope: `SELECT oracle_id FROM commander_pool WHERE can_command = 1${identityMask === undefined ? '' : ' AND (identity & ~?) = 0'}`,
+    scopeParams: identityMask === undefined ? [] : [identityMask],
+  });
+
+// The precomputed commander-ranking pool, as src/core/commanders.mjs rankCommanders takes it, minus
+// commanderIds (the caller's candidates).
+export async function loadCommanderPool(db) {
+  const [{ results }, meta] = await Promise.all([
+    db.prepare('SELECT oracle_id, identity, themes, tribes, is_land FROM commander_pool').all(),
+    db.prepare("SELECT value FROM card_data_meta WHERE key = 'creature_types'").first(),
   ]);
-  return joinRows(cards.results, printings.results);
+  return {
+    types: meta ? JSON.parse(meta.value) : [],
+    cards: results.map((row) => ({
+      oracleId: row.oracle_id,
+      identity: row.identity,
+      themes: row.themes,
+      tribes: new Set(JSON.parse(row.tribes)),
+      isLand: row.is_land === 1,
+    })),
+  };
 }
 
 // How many printings Scryfall has of each card, for reports (a request loads only some of them).

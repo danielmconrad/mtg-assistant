@@ -224,6 +224,7 @@ describe('statements', () => {
       cards: { upserts: [{ oracle_id: 'new', hash: 'h' }], deletes: ['gone'] },
       printings: { upserts: [], deletes: [] },
       prices: { upserts: [], deletes: [] },
+      commander_pool: { upserts: [], deletes: [] },
     };
     const statements = ingestStatements(diff, { ingested_at: 'now' });
     const position = (pattern) => statements.findIndex((statement) => pattern.test(statement));

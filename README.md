@@ -5,10 +5,10 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 [mtg-manager](https://github.com/danielmconrad/mtg-manager) CLI with a Cloudflare Worker at
 `https://mtg-assistant.conrad.tools`.
 
-**Status:** Milestone 1 in progress (step 5a). Every card on Scryfall is loaded into D1 nightly, mtg-manager's
+**Status:** Milestone 1 in progress (step 5b). Every card on Scryfall is loaded into D1 nightly, mtg-manager's
 logic is ported to `src/core`, each person's collections and decks live in D1, and these read-only tools are
-live: `search_cards`, `get_cards`, `collection_summary`, `list_decks`, `show_deck`, `deck_stats`, `check_deck`,
-`export_deck` and `whoami`. Commander ranking, download links and the workflow playbooks come next.
+live: `search_cards`, `get_cards`, `collection_summary`, `rank_commanders`, `list_decks`, `show_deck`,
+`deck_stats`, `check_deck`, `export_deck` and `whoami`. Download links and the workflow playbooks come next.
 
 ## Tools
 
@@ -23,6 +23,14 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   card's name.
 - **`collection_summary`** (`collection:check`): lists the person's collections, how fresh the card data is, and
   any rows that match no printing.
+- **`rank_commanders`** (`collection:commanders`): ranks every Commander-legal commander, owned or not, by how much
+  of the collection feeds its themes, compared with an average collection.
+  - **What gets precomputed:** that comparison needs every Commander-legal card (about 32,000). The nightly
+    ingest stores what each one adds (its themes and creature types) in `commander_pool`, and the creature-type
+    list in `card_data_meta`.
+  - **What a call loads:** that compact table, plus full card data only for the candidates and the person's own
+    cards.
+  - **Parity:** a test checks that the result equals mtg-manager's ranking over the full card set.
 - **`list_decks`**, **`show_deck`**, **`deck_stats`**, **`check_deck`** and **`export_deck`** (`deck:show`,
   `deck:stats`, `deck:check`, `deck:export`): the person's decks.
 
@@ -147,6 +155,8 @@ Every card on Scryfall lives in D1:
 
 - **`cards`:** rules text, color identity as a bitmask, legality, and EDHREC rank, with one row per card.
 - **`printings`:** set, collector number, rarity and whether it's the default printing, with one row per printing.
+- **`commander_pool`:** for each Commander-legal card, what it adds to commander ranking: its themes and creature
+  types.
 - **`prices`:** USD, foil, etched and EUR prices.
 - **`cards_fts`:** a full-text index over names, type lines and rules text.
 

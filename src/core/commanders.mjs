@@ -7,6 +7,7 @@ import {
   commanderTribes,
   creatureTypeVocabulary,
   tribesFed,
+  vocabularyOf,
 } from './commander-themes.mjs';
 import { ownedCounts, protectedHoldings } from './collection.mjs';
 import { edhrecFit } from './edhrec.mjs';
@@ -23,22 +24,48 @@ const identityMask = (colors) =>
 const IDENTITY_MASKS = Array.from({ length: 1 << COLORS.length }, (_, mask) => mask);
 const CHANGELING = '*';
 
-// Every Commander-legal nonland card in the cache, bucketed by color identity: the pool an average
-// collection is drawn from. Each records the themes it feeds as a bit per THEMES entry, the creature
-// types it has, makes or names, and whether an available collection holds it.
-function cardProfiles(index, owned) {
-  const legal = index
+// Every Commander-legal card in the cache: the pool an average collection is drawn from.
+export const commanderPoolCards = (index) =>
+  index
     .playableOracleIds()
     .map((oracleId) => index.printingsOf(oracleId)[0])
     .filter((card) => card.legalities.commander === 'legal');
+
+// What a card adds to the pool: the themes it feeds as a bit per THEMES entry, and the creature types
+// it has, makes or names. The server's ingest stores this for every pool card (commander_pool).
+export const poolProfile = (card, vocabulary) => ({
+  themes: THEMES.reduce((bits, theme, position) => (theme.feeds(card) ? bits | (1 << position) : bits), 0),
+  tribes: tribesFed(card, vocabulary),
+});
+
+// The pool's nonland cards bucketed by color identity, each with its profile and whether an
+// available collection holds it.
+function cardProfiles(index, owned) {
+  const legal = commanderPoolCards(index);
   const vocabulary = creatureTypeVocabulary(legal);
   const buckets = IDENTITY_MASKS.map(() => []);
   for (const card of legal.filter((candidate) => !isLand(candidate))) {
-    const themes = THEMES.reduce((bits, theme, position) => (theme.feeds(card) ? bits | (1 << position) : bits), 0);
-    const profile = { card, themes, tribes: tribesFed(card, vocabulary), owned: owned.counts.has(card.oracleId) };
+    const profile = { card, ...poolProfile(card, vocabulary), owned: owned.counts.has(card.oracleId) };
     buckets[identityMask(card.colorIdentity)].push(profile);
   }
   return { legal, vocabulary, buckets };
+}
+
+// The same profiles from a precomputed pool, so a server needn't hold every card: pool.cards are
+// { oracleId, identity (WUBRG as bits 1 to 16), themes, tribes (a Set), isLand }, pool.types the
+// creature-type list, and pool.commanderIds the commanders to rank, whose cards index must hold.
+function precomputedProfiles(pool, index, owned) {
+  const legal = pool.commanderIds.map((oracleId) => index.printingsOf(oracleId)[0]).filter(Boolean);
+  const buckets = IDENTITY_MASKS.map(() => []);
+  for (const entry of pool.cards.filter((candidate) => !candidate.isLand)) {
+    buckets[entry.identity].push({
+      card: { oracleId: entry.oracleId },
+      themes: entry.themes,
+      tribes: entry.tribes,
+      owned: owned.counts.has(entry.oracleId),
+    });
+  }
+  return { legal, vocabulary: vocabularyOf(pool.types), buckets };
 }
 
 // A commander's themes and tribes as tests on a card profile.
@@ -170,10 +197,11 @@ const COMMANDER_PREDICATES = [
 // Every Commander-legal commander the filters keep, scored against the available collections, with
 // EDHREC's view where edhrec (the cached pages, by commander name) has one. Results below minCards
 // on-theme cards, or without a theme the THEMES tests recognise, are counted rather than listed.
-export function rankCommanders(collections, index, filters, { edhrec = {}, decks = [] } = {}) {
+// With pool, the pool comes precomputed (see precomputedProfiles) rather than from every card in index.
+export function rankCommanders(collections, index, filters, { edhrec = {}, decks = [], pool } = {}) {
   const owned = ownedCounts(collections.available, index);
   const holdings = protectedHoldings(collections.protected, index);
-  const profiles = cardProfiles(index, owned);
+  const profiles = pool ? precomputedProfiles(pool, index, owned) : cardProfiles(index, owned);
   const scoreFit = fitScorer(profiles);
   const led = decksLed(decks, index);
   const candidates = profiles.legal

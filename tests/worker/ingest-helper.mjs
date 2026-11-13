@@ -33,6 +33,7 @@ export async function ingest(defaults, others = []) {
     ingested_at: INGESTED,
     card_count: rows.cards.length,
     formats: JSON.stringify(rows.formats),
+    creature_types: JSON.stringify(rows.creatureTypes),
   };
   for (const statement of ingestStatements(diff, meta)) await env.DB.prepare(statement).run();
   return { diff, rows };
@@ -40,7 +41,7 @@ export async function ingest(defaults, others = []) {
 
 export const clearCardTables = () =>
   env.DB.batch(
-    ['cards', 'printings', 'prices', 'cards_fts', 'card_data_meta'].map((table) =>
+    ['cards', 'printings', 'prices', 'cards_fts', 'card_data_meta', 'commander_pool'].map((table) =>
       env.DB.prepare(`DELETE FROM ${table}`),
     ),
   );

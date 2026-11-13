@@ -139,6 +139,7 @@ async function main() {
     cards: diffRows(rows.cards, TABLES.cards.key, current.cards),
     printings: diffRows(rows.printings, TABLES.printings.key, current.printings),
     prices: diffRows(rows.prices, TABLES.prices.key, current.prices),
+    commander_pool: diffRows(rows.commander_pool, TABLES.commander_pool.key, current.commander_pool),
   };
   for (const [table, { upserts, deletes }] of Object.entries(diff)) {
     log(`  ${table}: ${upserts.length} to write, ${deletes.length} to delete`);
@@ -151,6 +152,7 @@ async function main() {
     card_count: rows.cards.length,
     printing_count: rows.printings.length,
     formats: JSON.stringify(rows.formats),
+    creature_types: JSON.stringify(rows.creatureTypes),
   };
   const files = chunkStatements(ingestStatements(diff, meta));
   const directory = await mkdtemp(join(tmpdir(), 'mtg-ingest-'));
