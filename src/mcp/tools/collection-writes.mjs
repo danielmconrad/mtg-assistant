@@ -1,5 +1,5 @@
-// add_cards, remove_cards and collection_changes: changing a person's collections by text list, and
-// what changed since a date (mtg-manager's collection:diff, read from the change log rather than Git).
+// add_cards, remove_cards and collection_changes: changing a person's binders by text list, and what
+// changed since a date (mtg-manager's collection:diff, read from the change log rather than Git).
 import { z } from 'zod';
 import { normalizeName } from '../../core/card.mjs';
 import { decksNaming } from '../../core/collection-diff.mjs';
@@ -10,9 +10,10 @@ import { cardIndexFor, loadCardRows, nameSuggester } from '../../storage/cards.m
 import {
   applyCollectionChanges,
   collectionEvents,
+  BINDER_NAME_RULE,
   entriesFor,
-  isValidCollectionName,
-  newTextCollection,
+  isValidBinderName,
+  newBinder,
   planAdd,
   planRemove,
 } from '../../storage/collection-writes.mjs';
@@ -23,7 +24,7 @@ import { ToolError, textResult } from './shared.mjs';
 const MAX_LIST_CHARS = 20_000;
 const DEFAULT_DAYS = 30;
 const BATCHES_SHOWN = 20;
-const collectionName = z.string().min(1).max(120).describe('A collection’s name, as collection_summary lists it');
+const binderName = z.string().min(1).max(120).describe('A binder’s name, as collection_summary lists it');
 const cardList = z
   .string()
   .min(1)
@@ -68,9 +69,10 @@ export async function resolvedRows(db, text, source = 'cards') {
   return { rows: resolved, index };
 }
 
-// The collection to change. A deck's own list (collection_destination) changes only with its deck, through
-// the physical-deck tools. A new one is a text list unless format says otherwise (an uploaded CSV).
-export async function targetCollection(db, userId, name, { create, now, format }) {
+// The binder to change. A built deck's binder (collection_destination) changes only with its deck, through
+// the physical-deck tools. A new one is a text list unless format says otherwise (an uploaded CSV), and
+// unprotected unless isProtected says otherwise.
+export async function targetCollection(db, userId, name, { create, now, format, isProtected }) {
   const collections = await listCollections(db, userId);
   const existing = collections.find((collection) => collection.name === name);
   const decks = await loadAllDecks(db, userId);
@@ -83,14 +85,10 @@ export async function targetCollection(db, userId, name, { create, now, format }
   }
   if (!create) {
     const names = collections.map((collection) => collection.name).join(', ') || 'none yet';
-    throw new ToolError(`No collection named ${name} (yours: ${names}); pass create: true to start a new text list`);
+    throw new ToolError(`No binder named ${name} (yours: ${names}); pass create: true to start a new one`);
   }
-  if (!isValidCollectionName(name)) {
-    throw new ToolError(
-      `${name} can't be a collection name: use folders and names of letters, digits, spaces, dots, underscores and hyphens`,
-    );
-  }
-  return { collection: newTextCollection(name, now, format), decks };
+  if (!isValidBinderName(name)) throw new ToolError(`${name} can't be a binder name: ${BINDER_NAME_RULE}`);
+  return { collection: newBinder(name, now, { format, isProtected }), decks };
 }
 
 async function saved(db, userId, change, context) {
@@ -113,7 +111,11 @@ const finishNote = (finish) => (finish === 'normal' ? '' : ` (${finish})`);
 
 async function addCards(args, { db, user, now }) {
   const { rows } = await resolvedRows(db, args.cards);
-  const { collection, decks } = await targetCollection(db, user.id, args.collection, { create: args.create, now });
+  const { collection, decks } = await targetCollection(db, user.id, args.binder, {
+    create: args.create,
+    isProtected: args.protected,
+    now,
+  });
   const entries = collection.isNew ? [] : await entriesFor(db, user.id, collection.id);
   const plan = planAdd(entries, rows);
   const events = rows.map((row) => ({
@@ -156,7 +158,7 @@ function rowsForLine(row, entries, index) {
 
 async function removeCards(args, { db, user, now }) {
   const { rows, index } = await resolvedRows(db, args.cards);
-  const { collection, decks } = await targetCollection(db, user.id, args.collection, { create: false, now });
+  const { collection, decks } = await targetCollection(db, user.id, args.binder, { create: false, now });
   const entries = await entriesFor(db, user.id, collection.id);
   const left = new Map(entries.map((entry) => [entry.id, entry.quantity]));
   const takes = [];
@@ -197,7 +199,7 @@ async function removeCards(args, { db, user, now }) {
   ]);
 }
 
-// Net change per collection and card since the date, in collection:diff's shape.
+// Net change per binder and card since the date, in collection:diff's shape.
 function netChanges(events) {
   const byCollection = new Map();
   for (const { collection_name: collection, name, change } of events) {
@@ -243,7 +245,7 @@ function batchLines(events) {
 async function collectionChanges(args, { db, user, now }) {
   const since = args.since ?? new Date(now - DEFAULT_DAYS * 86_400_000).toISOString().slice(0, 10);
   const [events, decks] = await Promise.all([
-    collectionEvents(db, user.id, { since: `${since}T00:00:00.000Z`, collection: args.collection }),
+    collectionEvents(db, user.id, { since: `${since}T00:00:00.000Z`, collection: args.binder }),
     loadAllDecks(db, user.id),
   ]);
   const changes = netChanges(events);
@@ -253,9 +255,7 @@ async function collectionChanges(args, { db, user, now }) {
   );
   return textResult(
     [...collectionDiffLines(since, changes, naming), ...batchLines(events)],
-    [
-      'Only changes made through MTG Assistant are logged; collections migrated from mtg-manager have no earlier history.',
-    ],
+    ['Only changes made through MTG Assistant are logged; binders migrated from mtg-manager have no earlier history.'],
   );
 }
 
@@ -264,21 +264,30 @@ const WRITES = { readOnlyHint: false, openWorldHint: false, idempotentHint: fals
 export const COLLECTION_WRITE_TOOLS = [
   {
     name: 'add_cards',
-    title: 'Add cards to a collection',
+    title: 'Add cards to a binder',
     description:
-      'Add copies to one of the person’s collections from a short text list (Moxfield/Archidekt/Arena lines), after they say they’ve got the cards. Every line must match a card; set and number pin the printing. create: true starts a new text list. Logged for collection_changes.',
+      'Add copies to one of the person’s binders from a short text list (Moxfield/Archidekt/Arena lines), after they say they’ve got the cards. Every line must match a card; set and number pin the printing. create: true starts a new binder (protected: true protects it). Logged for collection_changes.',
     schema: z
-      .object({ collection: collectionName, cards: cardList, create: z.boolean().default(false), note })
+      .object({
+        binder: binderName,
+        cards: cardList,
+        create: z.boolean().default(false),
+        protected: z
+          .boolean()
+          .default(false)
+          .describe('With create: protect the new binder, so other decks never use its cards'),
+        note,
+      })
       .strict(),
     annotations: { ...WRITES, destructiveHint: false },
     handler: addCards,
   },
   {
     name: 'remove_cards',
-    title: 'Remove cards from a collection',
+    title: 'Remove cards from a binder',
     description:
-      'Remove copies from one of the person’s collections (sold, traded, lost), from a short text list. A name alone works when the collection holds that card in one printing; otherwise give (SET) NUMBER and *F* for foil. Nothing is removed unless every line can be. Logged for collection_changes.',
-    schema: z.object({ collection: collectionName, cards: cardList, note }).strict(),
+      'Remove copies from one of the person’s binders (sold, traded, lost), from a short text list. A name alone works when the binder holds that card in one printing; otherwise give (SET) NUMBER and *F* for foil. Nothing is removed unless every line can be. Logged for collection_changes.',
+    schema: z.object({ binder: binderName, cards: cardList, note }).strict(),
     annotations: { ...WRITES, destructiveHint: true },
     handler: removeCards,
   },
@@ -286,7 +295,7 @@ export const COLLECTION_WRITE_TOOLS = [
     name: 'collection_changes',
     title: 'Collection changes',
     description:
-      'What changed in the person’s collections since a date (default 30 days): net copies per card per collection, the decks naming changed cards, and each change made, with its note.',
+      'What changed in the person’s collection since a date (default 30 days): net copies per card per binder, the decks naming changed cards, and each change made, with its note.',
     schema: z
       .object({
         since: z
@@ -294,7 +303,7 @@ export const COLLECTION_WRITE_TOOLS = [
           .regex(/^\d{4}-\d{2}-\d{2}$/)
           .optional()
           .describe('YYYY-MM-DD'),
-        collection: collectionName.optional(),
+        binder: binderName.optional(),
       })
       .strict(),
     handler: collectionChanges,

@@ -128,7 +128,7 @@ describe('update_deck', () => {
     expect(
       (await callTool(owner, 'update_deck', { slug: 'bears', ops: [{ op: 'set', field: 'status', value: 'built' }] }))
         .text,
-    ).toMatch(/becomes built when its physical cards are moved/);
+    ).toMatch(/becomes built when build_deck moves its physical cards/);
     const unknownField = await callTool(owner, 'update_deck', {
       slug: 'bears',
       ops: [{ op: 'set', field: 'collection_destination', value: 'collections/x.txt' }],

@@ -12,3 +12,4 @@ node_modules/
 coverage/
 mise.local.toml
 .DS_Store
+.tmp

@@ -47,6 +47,15 @@ mainboard:
     role: ramp
 `;
 
+// Migration 0010's statements after its ALTER TABLE, run again on what the migration script wrote, as
+// the deploy ran them on the server's data. Running them twice changes nothing more.
+async function splitBinders() {
+  const { queries } = env.TEST_MIGRATIONS.find((migration) => migration.name.startsWith('0010_'));
+  for (const query of queries.filter((candidate) => !/ALTER TABLE/i.test(candidate))) {
+    await env.DB.prepare(query).run();
+  }
+}
+
 async function person({ folder, email, userId, existing = false }) {
   const { index } = await cardIndexFor(
     env.DB,
@@ -142,18 +151,32 @@ describe('the loaded collections', () => {
     await migrate([await person({ folder: 'conrad', email: 'daniel@example.com', userId: 'user-daniel' })]);
   });
 
-  it("hold back protected collections and deck binders, as mtg-manager's workspace did", async () => {
+  it('become binders with migration 0010, holding back only protected ones', async () => {
+    await splitBinders();
     const collections = await loadCollections(env.DB, 'user-daniel');
-    expect(collections.availableNames).toEqual(['ManaBox_Collection', 'binders/Alphabetized']);
+    expect(collections.availableNames).toEqual(['all cards', 'binders/Alphabetized']);
     expect(collections.available.map((row) => `${row.collection}:${row.name}`)).toEqual([
-      'ManaBox_Collection:Sol Ring',
+      'all cards:Sol Ring',
       'binders/Alphabetized:Arbor Elf',
       'binders/Alphabetized:Sol Ring',
       'binders/Alphabetized:Unknown Card',
     ]);
     expect(collections.protected.map((row) => `${row.collection}:${row.name}`)).toEqual([
-      'ManaBox_Collection decks:Arcane Signet',
+      'Goblins:Arcane Signet',
       'protected/precons/Elves:Arcane Signet',
+    ]);
+    expect(
+      (await listCollections(env.DB, 'user-daniel')).map(({ name, path, kind, protected: held }) => [
+        name,
+        path,
+        kind,
+        held,
+      ]),
+    ).toEqual([
+      ['Goblins', 'collections/Goblins.csv', 'deck', 1],
+      ['all cards', 'collections/all cards.csv', 'binder', 0],
+      ['binders/Alphabetized', 'collections/binders/Alphabetized.txt', 'binder', 0],
+      ['protected/precons/Elves', 'collections/protected/precons/Elves.txt', 'deck', 1],
     ]);
   });
 
@@ -170,6 +193,32 @@ describe('the loaded collections', () => {
       copies: 4,
       unresolved_rows: 1,
     });
+  });
+
+  it('split once: again changes nothing, and taken names get the export’s', async () => {
+    await env.DB.prepare(
+      `INSERT INTO collections (id, user_id, name, path, format, protected, created_at, updated_at)
+       VALUES ('taken', 'user-daniel', 'Goblins', 'collections/Goblins.txt', 'text', 0, 'x', 'x')`,
+    ).run();
+    await splitBinders();
+    const first = await listCollections(env.DB, 'user-daniel');
+    await splitBinders();
+    expect(await listCollections(env.DB, 'user-daniel')).toEqual(first);
+    expect(first.map(({ name, kind, copies }) => [name, kind, copies])).toEqual([
+      ['Goblins', 'binder', 0],
+      ['Goblins (ManaBox_Collection)', 'deck', 1],
+      ['all cards', 'binder', 2],
+      ['binders/Alphabetized', 'binder', 4],
+      ['protected/precons/Elves', 'deck', 1],
+    ]);
+    const positions = await env.DB.prepare(
+      `SELECT c.name, e.position FROM collection_entries e JOIN collections c ON c.id = e.collection_id
+       WHERE c.format = 'manabox_csv' ORDER BY c.name`,
+    ).all();
+    expect(positions.results).toEqual([
+      { name: 'Goblins (ManaBox_Collection)', position: 0 },
+      { name: 'all cards', position: 0 },
+    ]);
   });
 
   it("apply a deck's collection_source patterns", async () => {

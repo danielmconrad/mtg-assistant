@@ -9,8 +9,9 @@
 // decks. With --apply it replaces those people's collections and decks with the files' contents, then
 // reads everything back through the server's own loaders and compares it with what it wrote.
 //
-// - Collections: every .csv (ManaBox) and .txt (text list) under collections/<owner>/, named by their
-//   path inside that folder. Anything under a folder named precons, decks or protected is protected:
+// - Collections: every .csv (ManaBox) and .txt (text list) under collections/<owner>/, each loaded as one
+//   binder named by its path inside that folder. (Migration 0010 later split the ManaBox files already
+//   loaded into one binder per ManaBox binder; for anyone new, import a ManaBox export on the upload page.) Anything under a folder named precons, decks or protected is protected:
 //   reported, never used by decks. Text-list rows are matched to printings in the target's card data,
 //   as mtg-manager matched them against its cache.
 // - Decks: builds/<owner>/<slug>/deck.yaml, validated against the schema. collection_source and

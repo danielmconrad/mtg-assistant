@@ -108,10 +108,15 @@ const operation = z.discriminatedUnion('op', [
     .describe('Set a deck field; null removes an optional one'),
 ]);
 
-// collection_source globs become regexes, and stacked ** turn into nested repeats that can backtrack
-// badly, so a pattern may hold only a few wildcards. One that doesn't compile is refused.
+// collection_source holds path globs over binder paths (collections/<binder>.<txt or csv>), as mtg-manager
+// matched collection files. People name binders, so a pattern that isn't already a path becomes one:
+// precons/* becomes collections/precons/*.*. Globs become regexes, and stacked ** turn into nested repeats
+// that can backtrack badly, so a pattern may hold only a few wildcards. One that doesn't compile is refused.
 const MAX_GLOB_STARS = 4;
-function checkGlobs(patterns) {
+const binderGlob = (pattern) =>
+  pattern === 'collections' || pattern.startsWith('collections/') ? pattern : `collections/${pattern}.*`;
+function checkGlobs(names) {
+  const patterns = names.map(binderGlob);
   for (const pattern of patterns) {
     if ((pattern.match(/\*/g) ?? []).length > MAX_GLOB_STARS) {
       throw new ToolError(`collection_source: ${pattern} has more than ${MAX_GLOB_STARS} * wildcards`);
@@ -249,10 +254,10 @@ const OPERATIONS = {
   },
   set(deck, op) {
     if (op.field === 'status' && op.value === 'built') {
-      throw new ToolError('A deck becomes built when its physical cards are moved into their own collection');
+      throw new ToolError('A deck becomes built when build_deck moves its physical cards into a deck binder');
     }
-    if (op.field === 'collection_source' && Array.isArray(op.value)) checkGlobs(op.value);
     if (op.value === null) delete deck[op.field];
+    else if (op.field === 'collection_source' && Array.isArray(op.value)) deck[op.field] = checkGlobs(op.value);
     else deck[op.field] = op.value;
     return deck;
   },
@@ -330,13 +335,13 @@ export const createSchema = z
     budget: money.optional(),
     max_card_price: money.optional(),
     allow_proxies: z.boolean().default(false),
-    unlimited_basics: z.boolean().default(false).describe('The person has basics their collections don’t list'),
+    unlimited_basics: z.boolean().default(false).describe('The person has basics their collection doesn’t list'),
     collection_source: z
       .array(z.string().min(1).max(200))
       .min(1)
       .max(20)
       .optional()
-      .describe('Only these collections supply cards (path globs such as collections/binders*)'),
+      .describe('Only these binders supply cards: binder names, with * for any part of a name (e.g. precons/*)'),
     mainboard: z
       .array(z.object({ name: cardName, quantity: quantity.default(1), role: role.optional() }).strict())
       .max(150)
@@ -346,7 +351,7 @@ export const createSchema = z
 
 // Creates the deck and returns the reply's lines. import_deck creates decks through it too.
 export async function createDeckLines(args, { db, user, now }) {
-  checkGlobs(args.collection_source ?? []);
+  const collectionSource = args.collection_source && checkGlobs(args.collection_source);
   const names = await canonicalNames(db, [...args.commanders, ...args.mainboard.map((entry) => entry.name)]);
   let deck;
   try {
@@ -361,7 +366,7 @@ export async function createDeckLines(args, { db, user, now }) {
         target_bracket: args.target_bracket,
         budget: args.budget,
         max_card_price: args.max_card_price,
-        collection_source: args.collection_source,
+        collection_source: collectionSource,
       },
     });
   } catch (error) {

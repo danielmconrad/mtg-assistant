@@ -1,7 +1,8 @@
 // build_deck, teardown_deck and swap_deck: mtg-manager's physical-deck commands, moving a deck's cards
-// between the person's collections when they say they've sleeved, unsleeved or swapped the real cards.
-// Each shows its plan unless apply is true. An applied move changes every collection it touches and the
-// deck in one batch, which applies only if none of them changed since the plan was made.
+// between the person's binders when they say they've sleeved, unsleeved or swapped the real cards. A built
+// deck's cards are in a protected deck binder of their own. Each shows its plan unless apply is true. An
+// applied move changes every binder it touches and the deck in one batch, which applies only if none of
+// them changed since the plan was made.
 import { z } from 'zod';
 import { planBuild, planSwapOut, printingLine, nameLine } from '../../core/build.mjs';
 import { isLand } from '../../core/card.mjs';
@@ -10,18 +11,19 @@ import { checkLines } from '../../core/format.mjs';
 import { baselineOutcome, checkDeck } from '../../core/rules.mjs';
 import {
   applyCollectionChanges,
+  BINDER_NAME_RULE,
   entriesFor,
-  isValidCollectionName,
-  newTextCollection,
+  isValidBinderName,
+  newBinder,
   planChange,
 } from '../../storage/collection-writes.mjs';
-import { isProtectedPath, listCollections, loadCollections } from '../../storage/collections.mjs';
+import { listCollections, loadCollections } from '../../storage/collections.mjs';
 import { loadAllDecks, loadDeckForUpdate } from '../../storage/decks.mjs';
 import { recordBrackets } from './deck-writes.mjs';
 import { namesIn, slug } from './decks.mjs';
 import { ToolError, personalIndex, textResult } from './shared.mjs';
 
-const collectionName = z.string().min(1).max(120);
+const binderName = z.string().min(1).max(120);
 const apply = z.boolean().default(false).describe('Make the move; without it, only show the plan');
 const WRITES = { readOnlyHint: false, openWorldHint: false, idempotentHint: false, destructiveHint: true };
 const today = (now) => new Date(now).toISOString().slice(0, 10);
@@ -52,22 +54,18 @@ function moveSet(known) {
   };
 }
 
-// A collection by name: an existing one, or a new text list for a destination. A built deck's own list is
+// A binder by name: an existing one, or a new text list for a destination. A built deck's binder is
 // refused, since it belongs to that deck.
 function destination(name, { known, decks, own, now }) {
   const existing = known.find((collection) => collection.name === name);
   if (existing) {
-    if (existing.path === own) throw new ToolError(`${name} is this deck's own list`);
+    if (existing.path === own) throw new ToolError(`${name} is this deck's own binder`);
     const builtInto = decks.find(({ deck }) => deck.collection_destination === existing.path);
     if (builtInto) throw new ToolError(`${name} holds the built deck ${builtInto.slug}`);
     return existing;
   }
-  if (!isValidCollectionName(name)) {
-    throw new ToolError(
-      `${name} can't be a collection name: use folders and names of letters, digits, spaces, dots, underscores and hyphens`,
-    );
-  }
-  return newTextCollection(name, now);
+  if (!isValidBinderName(name)) throw new ToolError(`${name} can't be a binder name: ${BINDER_NAME_RULE}`);
+  return newBinder(name, now);
 }
 
 const copyLine = ({ card, finish, quantity, tracked }) =>
@@ -133,7 +131,7 @@ async function applyMoves(db, userId, set, { source, deck, now }) {
   }
   validateDeck(deck.doc, deck.slug);
   if (!(await applyCollectionChanges(db, userId, changes, { source, now, deck }))) {
-    throw new ToolError('A collection or the deck changed while this was being saved; run it again');
+    throw new ToolError('A binder or the deck changed while this was being saved; run it again');
   }
 }
 
@@ -188,14 +186,15 @@ async function buildDeck(args, { db, user, now }) {
       `Not built: ${args.slug} needs these cards owned as real copies first.`,
     ]);
   }
-  const name = args.to ?? `decks/${args.slug}`;
+  const name = args.to ?? deck.name;
   if (world.known.some((collection) => collection.name === name)) {
-    throw new ToolError(`${name} already exists; choose another with to`);
+    throw new ToolError(`A binder named ${name} already exists; choose another name with to`);
   }
-  const own = destination(name, { ...world, own: undefined });
+  if (!isValidBinderName(name)) throw new ToolError(`${name} can't be a binder name: ${BINDER_NAME_RULE}`);
+  const own = newBinder(name, now, { kind: 'deck' });
   const byName = new Map(world.known.map((collection) => [collection.name, collection]));
   const set = moveSet(world.known);
-  // Commanders first in the deck's own list, then the rest, as deck:build wrote it.
+  // Commanders first in the deck's binder, then the rest, as deck:build wrote it.
   const takes = plan.takes.toSorted((first, second) => Number(second.isCommander) - Number(first.isCommander));
   for (const take of takes) {
     set.take(byName.get(take.row.collection), take);
@@ -207,21 +206,18 @@ async function buildDeck(args, { db, user, now }) {
     ...(plan.untracked.length ? ['(cards listed by name alone are untracked basics, from unlimited_basics)'] : []),
     ...(await affectedDrafts(db, user.id, args.slug, plan, world.decks, world.index)),
   ];
-  const warnings = isProtectedPath(own.path)
-    ? []
-    : [`${name} isn't protected, so other decks could count its cards; a name under decks/ is`];
   if (!args.apply) {
     return notApplied(
-      [...lines, `Would create ${name} and mark ${args.slug} built.`],
+      [...lines, `Would create the deck binder ${name} (protected) and mark ${args.slug} built.`],
       'once the person has sleeved the deck',
     );
   }
   const doc = { ...deck, status: 'built', collection_destination: own.path };
   await applyMoves(db, user.id, set, { source: 'build_deck', deck: { slug: args.slug, updatedAt, doc }, now });
-  return textResult([...lines, `Built ${args.slug}: its cards are now in ${name}.`], warnings);
+  return textResult([...lines, `Built ${args.slug}: its cards are now in the deck binder ${name}.`]);
 }
 
-// The text lists a torn-down or swapped-out card goes back to: lands to lands_to when it's given.
+// The binders a torn-down or swapped-out card goes back to: lands to lands_to when it's given.
 function returnTarget(card, targets) {
   return targets.landsTo && isLand(card) ? targets.landsTo : targets.to;
 }
@@ -229,7 +225,7 @@ function returnTarget(card, targets) {
 function ownList(world, deck) {
   const own = world.collections.sources.find((source) => source.path === deck.collection_destination);
   const stored = world.known.find((collection) => collection.path === deck.collection_destination);
-  if (!own || !stored) throw new ToolError(`The deck's own list ${deck.collection_destination} is missing`);
+  if (!own || !stored) throw new ToolError(`The deck's binder ${deck.collection_destination} is missing`);
   return { own, stored };
 }
 
@@ -262,7 +258,7 @@ async function teardownDeck(args, { db, user, now }) {
     ...(untracked.length ? ['Untracked basics (unlimited_basics), returned nowhere:', ...untracked] : []),
   ];
   const warnings = Object.values(targets)
-    .filter((target) => target && isProtectedPath(target.path))
+    .filter((target) => target?.protected)
     .map((target) => `${target.name} is protected, so no deck will count the returned cards`);
   const doc = { ...deck, status: deck.status === 'built' ? 'draft' : deck.status };
   delete doc.collection_destination;
@@ -342,7 +338,7 @@ function swapMoves(deck, world, { pairs, cuts }, args) {
   const problems = [...outPlan.problems, ...inPlan.problems];
   if (problems.length) return { problems };
   if (outPlan.takes.length && !args.to) {
-    throw new ToolError('Name the collection the swapped-out cards go back to with to');
+    throw new ToolError('Name the binder the swapped-out cards go back to with to');
   }
   const context = { ...world, own: deck.collection_destination };
   const targets = args.to
@@ -412,9 +408,13 @@ export const PHYSICAL_TOOLS = [
     name: 'build_deck',
     title: 'Build a deck physically',
     description:
-      'When the person says they’ve sleeved a deck: move its cards out of the collections they were counted in and into a text list of its own (decks/<slug> by default, which is protected), and mark the deck built. The deck must pass check_deck with real (non-proxy) copies. Shows the plan unless apply is true.',
+      'When the person says they’ve sleeved a deck: move its cards out of the binders they were counted in and into a protected deck binder of its own (named after the deck by default), and mark the deck built. The deck must pass check_deck with real (non-proxy) copies. Shows the plan unless apply is true.',
     schema: z
-      .object({ slug, to: collectionName.optional().describe('The new list’s name; decks/<slug> by default'), apply })
+      .object({
+        slug,
+        to: binderName.optional().describe('The new deck binder’s name; the deck’s name by default'),
+        apply,
+      })
       .strict(),
     annotations: WRITES,
     handler: buildDeck,
@@ -423,12 +423,12 @@ export const PHYSICAL_TOOLS = [
     name: 'teardown_deck',
     title: 'Tear down a built deck',
     description:
-      'When the person says they’ve taken a built deck apart: return its cards from its own list to the collection they name (lands to lands_to, if given), delete the list, and make the deck a draft again. Shows the plan unless apply is true.',
+      'When the person says they’ve taken a built deck apart: return its cards from its deck binder to the binder they name (lands to lands_to, if given), delete the deck binder, and make the deck a draft again. Shows the plan unless apply is true.',
     schema: z
       .object({
         slug,
-        to: collectionName.describe('Where the cards go back to; a new text list if it doesn’t exist'),
-        lands_to: collectionName.optional(),
+        to: binderName.describe('The binder the cards go back to; a new one if it doesn’t exist'),
+        lands_to: binderName.optional(),
         apply,
       })
       .strict(),
@@ -439,15 +439,15 @@ export const PHYSICAL_TOOLS = [
     name: 'swap_deck',
     title: 'Swap cards in a built deck',
     description:
-      'When the person says they’ve swapped physical cards in a built deck: one copy of each out card for the in card at the same place. The in cards move from the other collections into the deck’s own list, the out cards go back to to (lands to lands_to), and the deck records the swap with its reason. Shows the plan unless apply is true. For drafts, use update_deck.',
+      'When the person says they’ve swapped physical cards in a built deck: one copy of each out card for the in card at the same place. The in cards move from the other binders into the deck’s binder, the out cards go back to to (lands to lands_to), and the deck records the swap with its reason. Shows the plan unless apply is true. For drafts, use update_deck.',
     schema: z
       .object({
         slug,
         out: z.array(cardName).min(1).max(20),
         in: z.array(cardName).min(1).max(20),
         reasons: z.array(z.string().min(1).max(500)).max(20).optional().describe('Why each out card left, in order'),
-        to: collectionName.optional().describe('Where the swapped-out cards go back to'),
-        lands_to: collectionName.optional(),
+        to: binderName.optional().describe('The binder the swapped-out cards go back to'),
+        lands_to: binderName.optional(),
         apply,
       })
       .strict(),

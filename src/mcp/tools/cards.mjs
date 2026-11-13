@@ -77,7 +77,7 @@ const searchSchema = z
     commanders_only: z.boolean().optional().describe('Only cards that can be a commander'),
     nonland: z.boolean().optional(),
     game_changers: z.boolean().optional(),
-    include_protected: z.boolean().optional().describe('Also list cards held only in protected collections'),
+    include_protected: z.boolean().optional().describe('Also list cards held only in protected binders'),
     proxies: z.boolean().optional().describe('Count proxy copies as owned'),
     set: z.array(z.string().min(1).max(40)).max(10).optional().describe('Scryfall set codes, e.g. trk'),
     rarity: z.array(z.enum(RARITY_CHOICES)).max(6).optional(),

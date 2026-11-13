@@ -13,8 +13,6 @@ export const DOWNLOAD_TTL_MS = 15 * 60 * 1000;
 // Browsers and link previews may fetch a link before the person does, so it works a few times.
 export const MAX_DOWNLOAD_USES = 3;
 export const DOWNLOAD_FORMATS = ['manabox_csv', 'moxfield_csv', 'text'];
-// The collection value that downloads every collection, as a zip or (combine) as one file.
-export const ALL_COLLECTIONS = 'all';
 
 // ManaBox's export columns in its order. Columns a migrated file had beyond these follow them.
 const MANABOX_COLUMNS = [
@@ -54,16 +52,15 @@ const csv = (columns, records) =>
     .map((cells) => cells.map(csvCell).join(','))
     .join('\n')}\n`;
 
-// A ManaBox CSV that mtg-manager's parseCollection reads back. Rows with no printing can't be written
-// as ManaBox rows, so they're left out and counted. A combined file names each row's collection as its
-// binder, unless the row came from a ManaBox binder of its own.
+// A ManaBox CSV that mtg-manager's parseCollection reads back, naming each row's binder and its kind as
+// ManaBox does. Rows with no printing can't be written as ManaBox rows, so they're left out and counted.
 function manaboxCsv(entries, { prices }) {
   const records = entries
     .filter((entry) => entry.scryfall_id)
     .map((entry) => ({
-      ...(entry.binder ? { 'Binder Name': entry.binder } : {}),
       ...JSON.parse(entry.source_record ?? '{}'),
-      'Binder Type': entry.in_deck_binder ? 'deck' : 'binder',
+      'Binder Name': entry.binder,
+      'Binder Type': entry.binder_kind === 'deck' || entry.in_deck_binder ? 'deck' : 'binder',
       Name: entry.name,
       'Set code': (entry.set_code ?? '').toUpperCase(),
       'Collector number': entry.collector_number ?? '',
@@ -112,22 +109,25 @@ export function collectionFile(entries, format, { prices = false } = {}) {
   return textList(entries);
 }
 
-// A collection name (binders/Alphabetized) as a safe path inside the zip, or as one file name.
+// A binder name (binders/Alphabetized) as a safe path inside the zip, or as one file name.
 const safeSegment = (segment) => segment.replace(/[^A-Za-z0-9 ._-]/g, '_').replace(/^\.+/, '_') || '_';
 const zipPath = (name) => name.split('/').filter(Boolean).map(safeSegment).join('/');
 const fileName = (name) => safeSegment(name.replace(/\//g, '-'));
 
-// The file for a link's claims: one collection, every collection in one file (combine), or every
-// collection zipped with a manifest. Returns null when a named collection no longer exists.
+// The file for a link's claims: one binder, the whole collection in one file (combine), or every binder
+// zipped with a manifest. Returns null when a named binder no longer exists.
 export async function buildDownload(db, claims, now) {
   const extension = EXTENSIONS[claims.format];
-  const all = claims.collection === ALL_COLLECTIONS;
-  const collections = await collectionsForExport(db, claims.user, all ? undefined : [claims.collection]);
+  const all = claims.binder === undefined;
+  const collections = (await collectionsForExport(db, claims.user, all ? undefined : [claims.binder])).map(
+    (collection) => ({
+      ...collection,
+      entries: collection.entries.map((entry) => ({ ...entry, binder: collection.name, binder_kind: collection.kind })),
+    }),
+  );
   const date = new Date(now);
   if (all && claims.combine) {
-    const entries = collections.flatMap((collection) =>
-      collection.entries.map((entry) => ({ ...entry, binder: collection.name })),
-    );
+    const entries = collections.flatMap((collection) => collection.entries);
     const { text } = collectionFile(entries, claims.format, { prices: claims.prices });
     return {
       body: text,
@@ -153,6 +153,7 @@ export async function buildDownload(db, claims, now) {
     manifest.push({
       name: collection.name,
       file: path,
+      kind: collection.kind,
       protected: collection.protected === 1,
       rows: collection.entries.length,
       copies: collection.entries.reduce((sum, entry) => sum + entry.quantity, 0),
@@ -203,12 +204,12 @@ export async function handleDownload(request, env, config) {
   }
   if (!(await useLink(env.DB, claims, MAX_DOWNLOAD_USES, now))) return refuse('used up', access.email);
   const file = await buildDownload(env.DB, claims, now);
-  if (!file) return refuse('collection no longer exists', access.email);
+  if (!file) return refuse('binder no longer exists', access.email);
   await logAuthEvent(env.DB, request, 'download_served', {
     email: access.email,
     detail: {
       format: claims.format,
-      all: claims.collection === ALL_COLLECTIONS,
+      all: claims.binder === undefined,
       combine: Boolean(claims.combine),
       prices: claims.prices,
     },

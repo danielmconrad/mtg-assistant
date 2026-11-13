@@ -151,8 +151,8 @@ function formPage(email, token, { collection = '', mode = 'merge', problem } = {
   const option = (value, label) =>
     `<label><input type="radio" name="mode" value="${value}"${mode === value ? ' checked' : ''}> ${label}</label><br>`;
   return htmlPage(
-    'Upload a collection',
-    `<h1>Upload a collection</h1>
+    'Upload to a binder',
+    `<h1>Upload to a binder</h1>
 <p>Signed in through Cloudflare Access as <strong>${escapeHtml(email)}</strong>.</p>
 ${problem ? `<p class="warn">${lines(problem)}</p>` : ''}
 <form method="post" action="/upload" enctype="multipart/form-data">
@@ -160,9 +160,9 @@ ${problem ? `<p class="warn">${lines(problem)}</p>` : ''}
   <input type="hidden" name="token" value="${escapeHtml(token)}">
   <p><label>A ManaBox CSV export (.csv) or a text list (.txt), 5 MB at most<br>
     <input type="file" name="file" accept=".csv,.txt" required></label></p>
-  <p><label>Collection (a new name starts a new one)<br>
+  <p><label>Binder (a new name starts a new one)<br>
     <input name="collection" value="${escapeHtml(collection)}" maxlength="120" required></label></p>
-  <p>${option('merge', 'Merge: add the file’s cards to the collection')}${option('replace', 'Replace: the collection becomes exactly the file')}</p>
+  <p>${option('merge', 'Merge: add the file’s cards to the binder')}${option('replace', 'Replace: the binder becomes exactly the file')}</p>
   <p><button>Preview</button></p>
 </form>`,
     { status: problem ? 400 : 200 },
@@ -175,7 +175,7 @@ function previewPage(upload, { collection, cards, decks }) {
   const more = cards.length > CHANGES_SHOWN ? `<li>and ${cards.length - CHANGES_SHOWN} more</li>` : '';
   const verb = upload.mode === 'merge' ? 'Merge' : 'Replace';
   const protectedNote = collection.protected
-    ? '<p class="warn">This collection is protected: its cards are reported but never supply a deck.</p>'
+    ? '<p class="warn">This binder is protected: its cards are reported but never supply a deck.</p>'
     : '';
   return htmlPage(
     'Upload preview',
@@ -236,7 +236,7 @@ async function preview(request, env, { user, form, now, refuse }) {
   let text;
   let planned;
   try {
-    if (!collection || collection.length > 120) throw new UploadProblem('Name the collection.');
+    if (!collection || collection.length > 120) throw new UploadProblem('Name the binder.');
     ({ text, format: upload.format } = await fileText(file));
     upload.file_name = file.name.slice(-120);
     planned = await planUpload(env.DB, user.id, upload, text, now);

@@ -1,9 +1,8 @@
-// Changing a person's collections: adding and removing copies, creating text collections, and the
-// event log collection_changes reads. A change is planned from the rows as read, then written as one D1
-// batch that applies only if every collection it touches is still at the revision it was read at.
-// Every statement filters on userId, which callers take from the verified token.
+// Changing a person's binders (rows of the collections table): adding and removing copies, creating,
+// renaming and protecting binders, and the event log collection_changes reads. A change is planned from
+// the rows as read, then written as one D1 batch that applies only if every binder it touches is still at
+// the revision it was read at. Every statement filters on userId, which callers take from the verified token.
 import { parse } from 'csv-parse/sync';
-import { isProtectedPath } from './collections.mjs';
 
 // The ManaBox columns parseCollection already turns into row fields; the rest are kept as JSON.
 const PARSED_COLUMNS = new Set([
@@ -25,24 +24,34 @@ export function sourceRecords(text) {
   );
 }
 
-// A collection name the server may create: folders and a name of letters, digits, spaces, dots,
-// underscores and hyphens, as mtg-manager's files were named (binders/Alphabetized).
-const NAME_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$/;
-export const isValidCollectionName = (name) =>
-  name.length <= 120 && name.split('/').every((segment) => NAME_SEGMENT.test(segment) && !segment.endsWith('.'));
+// A binder name the server may create: what ManaBox, Moxfield and Archidekt allow ("Turtle Power!"), with
+// slashes for folders as mtg-manager's files had (binders/Alphabetized). Each segment is up to 60
+// characters with no control characters or backslashes, doesn't start or end with a space, and isn't . or ..
+const isControl = (char) => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f;
+const validSegment = (segment) =>
+  /^[^ \\][^\\]{0,59}$/.test(segment) &&
+  !segment.endsWith(' ') &&
+  !/^\.\.?$/.test(segment) &&
+  ![...segment].some(isControl);
+export const isValidBinderName = (name) => name.length <= 120 && name.split('/').every(validSegment);
+export const BINDER_NAME_RULE =
+  'up to 60 characters per folder or name, separated by /, without backslashes or leading and trailing spaces';
 
 const EXTENSIONS = { text: 'txt', manabox_csv: 'csv' };
+// Binder paths are what decks' collection_source patterns match: collections/<name>.<txt or csv>.
+export const binderPath = (name, format) => `collections/${name}.${EXTENSIONS[format]}`;
 
-// A collection to create, as a text list unless format says ManaBox CSV (an uploaded export).
-export function newTextCollection(name, now, format = 'text') {
-  const path = `collections/${name}.${EXTENSIONS[format]}`;
+// A binder to create: a text list unless format says ManaBox CSV (an uploaded export). Deck binders hold a
+// deck's physical cards and are always protected; other binders are protected only when asked.
+export function newBinder(name, now, { format = 'text', kind = 'binder', isProtected = false } = {}) {
   const at = new Date(now).toISOString();
   return {
     id: crypto.randomUUID(),
     name,
-    path,
+    path: binderPath(name, format),
     format,
-    protected: isProtectedPath(path) ? 1 : 0,
+    kind,
+    protected: kind === 'deck' || isProtected ? 1 : 0,
     created_at: at,
     updated_at: at,
     revision: null,
@@ -141,8 +150,8 @@ const collectionGuard = (db, userId, collection, revision, at) =>
   collection.isNew
     ? db
         .prepare(
-          `INSERT INTO collections (id, user_id, name, path, format, protected, created_at, updated_at, revision)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, name) DO NOTHING`,
+          `INSERT INTO collections (id, user_id, name, path, format, protected, kind, created_at, updated_at, revision)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, name) DO NOTHING`,
         )
         .bind(
           collection.id,
@@ -151,6 +160,7 @@ const collectionGuard = (db, userId, collection, revision, at) =>
           collection.path,
           collection.format,
           collection.protected,
+          collection.kind ?? 'binder',
           at,
           at,
           revision,
@@ -289,4 +299,33 @@ export async function collectionEvents(db, userId, { since, collection }) {
     .bind(userId, since, collection ?? null, collection ?? null)
     .all();
   return results;
+}
+
+// Renames a binder, protects or unprotects it, or deletes it once empty, if it is still at the revision it
+// was read at. Returns false, changing nothing, otherwise (or when the new name is taken).
+export async function saveBinderSettings(db, userId, binder, { name, isProtected, remove, now }) {
+  const guard = [binder.id, userId, binder.revision ?? ''];
+  const statement = remove
+    ? db
+        .prepare(
+          `DELETE FROM collections WHERE id = ? AND user_id = ? AND COALESCE(revision, '') = ?
+           AND NOT EXISTS (SELECT 1 FROM collection_entries e WHERE e.user_id = collections.user_id
+                           AND e.collection_id = collections.id)`,
+        )
+        .bind(...guard)
+    : db
+        .prepare(
+          `UPDATE OR IGNORE collections SET name = ?, path = ?, protected = ?, revision = ?, updated_at = ?
+           WHERE id = ? AND user_id = ? AND COALESCE(revision, '') = ?`,
+        )
+        .bind(
+          name,
+          name === binder.name ? binder.path : binderPath(name, binder.format),
+          isProtected ? 1 : 0,
+          crypto.randomUUID(),
+          new Date(now).toISOString(),
+          ...guard,
+        );
+  const { meta } = await statement.run();
+  return meta.changes === 1;
 }

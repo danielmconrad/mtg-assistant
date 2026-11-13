@@ -8,7 +8,7 @@ export const NEW_DECK = {
     'Brew a Commander, Custom Dollar Brawl or casual-60 deck from the collection, from the brief through the plan, the list and the hand-off.',
   text: `# Brewing a new deck
 
-Only unprotected collections supply cards, protected copies are only mentioned, and card data comes from the tools, never memory. This playbook is the order of work, and it hands parts of the job to others:
+Only unprotected binders supply cards, protected copies are only mentioned, and card data comes from the tools, never memory. This playbook is the order of work, and it hands parts of the job to others:
 
 - collection-survey: step 2, finding the directions the collection supports.
 - commander-scout: step 2 instead, when the person is open to buying a commander the collection supports.
@@ -36,14 +36,14 @@ Ask only about what the person hasn't said. A standing answer from earlier in th
 - Must-includes and no-gos: pet cards to build around, and cards or strategies the playgroup dislikes.
 - Budget: amount and currency for optional upgrades, and any per-card price cap.
 - Proxies: allowed or not.
-- Collections: whose cards to build from, if not every unprotected collection.
-- Basics: search_cards with type: ["basic"], count: true. The collections hold few basics, so ask whether the person has untracked ones.
+- Binders: which binders to build from (collection_source), if not every unprotected one.
+- Basics: search_cards with type: ["basic"], count: true. The collection holds few basics, so ask whether the person has untracked ones.
 
 ## 2. Survey, propose directions, then stop
 
 Follow the collection-survey playbook: it sizes each candidate by role and engine depth and proposes two or three directions. When the person is open to buying the commander, follow commander-scout instead. Then wait for the person to choose. Don't run create_deck or write a list before they pick.
 
-An unowned commander goes in the commanders like any other. Until it's in a collection, check_deck reports it as unavailable. Build and review the rest of the deck as usual, and note the purchase (the commander and its price) in the deck's notes.
+An unowned commander goes in the commanders like any other. Until it's in a binder, check_deck reports it as unavailable. Build and review the rest of the deck as usual, and note the purchase (the commander and its price) in the deck's notes.
 
 ## 3. Plan before choosing cards
 
@@ -88,7 +88,7 @@ The deck is done when:
 - verify_deck passes. It fails on any check_deck error, a placeholder primer, a top-20 left-out card without a considered reason, upgrades over budget, or a plays_like_bracket not judged for this list. Explain every NOTE it prints (land gaps, role counts outside their targets).
 - plays_like_bracket is judged for the final list (update_deck set), with the reasons in power_notes. Any change to the card list removes it, so judge it last (deckbuilding-strategy section 2).
 - The summary names what's still unknown: unknown prices, and checks no tool makes.
-- An unowned commander: verify_deck can't pass until it's bought. Hand the deck off as a draft whose only ERROR is the commander's ownership, say what it costs, and verify again once a collection includes it.
+- An unowned commander: verify_deck can't pass until it's bought. Hand the deck off as a draft whose only ERROR is the commander's ownership, say what it costs, and verify again once a binder holds it.
 
 If the person wants to paste a saved deck into a site, export_deck gives a paste-ready list (upgrades: apply for a playtest list with every upgrade made).
 
