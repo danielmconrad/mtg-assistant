@@ -150,6 +150,9 @@ describe('deck tools', () => {
     expect(exported).toContain('1 Ayula, Queen Among Bears (MH1) 155');
     expect(exported).toContain('Bearded Bear');
     expect(exported).toContain('In Moxfield');
+    const manabox = (await callTool(owner, 'export_deck', { slug: 'bears', format: 'manabox' })).text;
+    expect(manabox).toMatch(/^Commander\n1 Ayula, Queen Among Bears \(MH1\) 155\n\nDeck\n/);
+    expect(manabox).toContain('In ManaBox');
   });
 
   it('refuses an unknown or malformed slug', async () => {
@@ -174,7 +177,10 @@ describe('get_download_link and /download', () => {
     (await env.DB.prepare('SELECT * FROM auth_events WHERE type = ? ORDER BY id').bind(type).all()).results;
 
   it('downloads a ManaBox CSV that reads back, without purchase prices unless asked', async () => {
-    const { text } = await callTool(owner, 'get_download_link', { collection: 'ManaBox_Collection' });
+    const { text } = await callTool(owner, 'get_download_link', {
+      collection: 'ManaBox_Collection',
+      format: 'manabox_csv',
+    });
     expect(text).toMatch(/expires at \d\d:\d\d UTC \(15 minutes\) and works 3 times/);
     expect(text).toContain(`signed in through Cloudflare Access as ${OWNER}`);
     const response = await open(linkIn(text));
@@ -193,7 +199,9 @@ describe('get_download_link and /download', () => {
       'Binder Name,Binder Type,Name,Set code,Collector number,Foil,Quantity,Scryfall ID,Proxy',
     );
 
-    const priced = await (await open(await linkFor({ collection: 'ManaBox_Collection', include_prices: true }))).text();
+    const priced = await (
+      await open(await linkFor({ collection: 'ManaBox_Collection', format: 'manabox_csv', include_prices: true }))
+    ).text();
     expect(priced.split('\n')[0]).toContain('Purchase price');
     expect(priced).toContain('1.50');
   });
@@ -212,7 +220,11 @@ describe('get_download_link and /download', () => {
   });
 
   it('combines every collection into one ManaBox CSV, naming each row’s binder', async () => {
-    const { text } = await callTool(owner, 'get_download_link', { collection: 'all', combine: true });
+    const { text } = await callTool(owner, 'get_download_link', {
+      collection: 'all',
+      combine: true,
+      format: 'manabox_csv',
+    });
     expect(text).toContain('every collection (2) as one file');
     const response = await open(linkIn(text));
     expect(response.headers.get('Content-Type')).toBe('text/csv; charset=utf-8');
@@ -234,8 +246,19 @@ describe('get_download_link and /download', () => {
     );
   });
 
+  it('writes a text list ManaBox imports by default', async () => {
+    const { text } = await callTool(owner, 'get_download_link', { collection: 'ManaBox_Collection' });
+    expect(text).toContain('ManaBox_Collection (text)');
+    expect(text).not.toContain('WARNING');
+    const response = await open(linkIn(text));
+    expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="ManaBox_Collection.txt"');
+    expect(await response.text()).toBe(
+      '2 Sol Ring (C21) 263\n3 Llanowar Elves (M19) 314\n1 Ayula, Queen Among Bears (MH1) 155 *F*\n',
+    );
+  });
+
   it('zips every collection with a manifest', async () => {
-    const { text } = await callTool(owner, 'get_download_link', { collection: 'all' });
+    const { text } = await callTool(owner, 'get_download_link', { collection: 'all', format: 'manabox_csv' });
     expect(text).toContain('every collection (2) as a zip');
     expect(text).toContain('WARNING: 1 rows match no printing');
     const response = await open(linkIn(text));
