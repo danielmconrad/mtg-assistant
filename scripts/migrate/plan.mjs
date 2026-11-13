@@ -6,7 +6,6 @@ import { loadCollections } from '../../src/storage/collections.mjs';
 import { loadAllDecks } from '../../src/storage/decks.mjs';
 import { insertStatements, literal } from '../ingest/sql.mjs';
 
-const PROTECTED_FOLDERS = new Set(['precons', 'decks', 'protected']);
 // The ManaBox columns parseCollection already turns into row fields; the rest are kept as JSON.
 const PARSED_COLUMNS = new Set([
   'Name',
@@ -19,11 +18,8 @@ const PARSED_COLUMNS = new Set([
   'Binder Type',
 ]);
 
-export const isProtectedPath = (path) =>
-  path
-    .split('/')
-    .slice(0, -1)
-    .some((folder) => PROTECTED_FOLDERS.has(folder));
+// Shared with collections the server creates, so both are protected by the same rule.
+export { isProtectedPath } from '../../src/storage/collections.mjs';
 
 // A collection path or pattern from deck.yaml, without the owner's folder. On the server each person
 // has their own collections/ tree, so collections/brad/**/* becomes collections/**/*, matched against

@@ -14,7 +14,8 @@ Each user sees only their own data.
 Protected collections (precons, built decks) are reported but never supply a deck's cards: mention useful protected copies, never put them in a deck.
 Size broad questions with search_cards count or group_by before listing cards.
 For a multi-step job (brewing, surveying, scouting commanders, reviewing or upgrading a deck), read its playbook with get_workflow first: ${WORKFLOWS.map((workflow) => workflow.name).join(', ')}.
-Decks are saved with create_deck and update_deck; ask before big rewrites. Collections can't be edited through these tools yet.
+Decks are saved with create_deck and update_deck; ask before big rewrites.
+Change collections (add_cards, remove_cards) only when the person says their physical cards changed, and never move cards between collections to make a deck pass.
 Purchase prices are private: include them in a download only when the person asks.`;
 
 // Runs a tool for the signed-in user. ToolErrors are the caller's to see; anything else is logged and
