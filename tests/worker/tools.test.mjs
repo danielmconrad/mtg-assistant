@@ -5,16 +5,21 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { migrationStatements, sourceRecords } from '../../scripts/migrate/plan.mjs';
 import { parseCollection, parseTextCollection, resolveTextRows } from '../../src/core/collection.mjs';
 import { parseDeck } from '../../src/core/deck.mjs';
+import { DOWNLOAD_PURPOSE } from '../../src/downloads.mjs';
+import { signLink } from '../../src/links.mjs';
 import { TOOLS } from '../../src/mcp/tools/index.mjs';
+import { WORKFLOWS } from '../../src/mcp/workflows/index.mjs';
 import { cardIndexFor, loadCardRows } from '../../src/storage/cards.mjs';
 import { scryfallCard } from '../fixtures/scryfall.mjs';
-import { call, mcp, signIn } from './helpers.mjs';
+import { unzip } from './zip-reader.mjs';
+import { accessAssertion, call, mcp, signIn } from './helpers.mjs';
 import { clearCardTables, ingest } from './ingest-helper.mjs';
 
 const ID = {
   solRing: '25ef2d44-c261-4511-b96f-85e7a291e318',
   elves: '11111111-1111-4111-8111-111111111111',
   ayula: '22222222-2222-4222-8222-222222222222',
+  reanimate: '33333333-3333-4333-8333-333333333333',
 };
 const CARDS = [
   scryfallCard('Sol Ring', {
@@ -60,6 +65,7 @@ const CARDS = [
     edhrec_rank: null,
   }),
   scryfallCard('Reanimate', {
+    id: ID.reanimate,
     type_line: 'Sorcery',
     mana_cost: '{B}',
     cmc: 1,
@@ -319,6 +325,189 @@ describe('deck tools', () => {
   });
 });
 
+describe('get_download_link and /download', () => {
+  const linkIn = (text) => new URL(text.match(/https:\/\/\S+/)[0]);
+  const open = async (url, email = OWNER) =>
+    call(
+      url.pathname + url.search,
+      email ? { headers: { 'Cf-Access-Jwt-Assertion': await accessAssertion(email) } } : {},
+    );
+  const linkFor = async (args) => linkIn((await callTool(owner, 'get_download_link', args)).text);
+  const events = async (type) =>
+    (await env.DB.prepare('SELECT * FROM auth_events WHERE type = ? ORDER BY id').bind(type).all()).results;
+
+  it('downloads a ManaBox CSV that reads back, without purchase prices unless asked', async () => {
+    const { text } = await callTool(owner, 'get_download_link', { collection: 'ManaBox_Collection' });
+    expect(text).toMatch(/expires at \d\d:\d\d UTC \(15 minutes\) and works 3 times/);
+    expect(text).toContain(`signed in through Cloudflare Access as ${OWNER}`);
+    const response = await open(linkIn(text));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Disposition')).toBe('attachment; filename="ManaBox_Collection.csv"');
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const body = await response.text();
+    expect(body).not.toMatch(/purchase price|1\.50/i);
+    const rows = parseCollection(body, 'download');
+    expect(rows.map((row) => [row.name, row.quantity, row.finish])).toEqual([
+      ['Sol Ring', 2, 'normal'],
+      ['Llanowar Elves', 3, 'normal'],
+      ['Ayula, Queen Among Bears', 1, 'foil'],
+    ]);
+    expect(body.split('\n')[0]).toBe(
+      'Binder Name,Binder Type,Name,Set code,Collector number,Foil,Quantity,Scryfall ID,Proxy',
+    );
+
+    const priced = await (await open(await linkFor({ collection: 'ManaBox_Collection', include_prices: true }))).text();
+    expect(priced.split('\n')[0]).toContain('Purchase price');
+    expect(priced).toContain('1.50');
+  });
+
+  it('writes Moxfield CSV and text lists', async () => {
+    const moxfield = await (
+      await open(await linkFor({ collection: 'ManaBox_Collection', format: 'moxfield_csv' }))
+    ).text();
+    expect(moxfield.split('\n').slice(0, 2)).toEqual([
+      'Count,Name,Edition,Collector Number,Foil,Proxy',
+      '2,Sol Ring,c21,263,,False',
+    ]);
+    const text = await (await open(await linkFor({ collection: 'ManaBox_Collection', format: 'text' }))).text();
+    expect(text).toBe('2 Sol Ring (C21) 263\n3 Llanowar Elves (M19) 314\n1 Ayula, Queen Among Bears (MH1) 155 *F*\n');
+    expect(parseTextCollection(text, 'download')).toHaveLength(3);
+  });
+
+  it('zips every collection with a manifest', async () => {
+    const { text } = await callTool(owner, 'get_download_link', { collection: 'all' });
+    expect(text).toContain('every collection (2) as a zip');
+    expect(text).toContain('WARNING: 1 rows match no printing');
+    const response = await open(linkIn(text));
+    expect(response.headers.get('Content-Type')).toBe('application/zip');
+    const files = await unzip(new Uint8Array(await response.arrayBuffer()));
+    expect(Object.keys(files).sort()).toEqual([
+      'ManaBox_Collection.csv',
+      'manifest.json',
+      'protected/precons/Spooky.csv',
+    ]);
+    expect(parseCollection(files['protected/precons/Spooky.csv'], 'spooky').map((row) => row.name)).toEqual([
+      'Reanimate',
+    ]);
+    const manifest = JSON.parse(files['manifest.json']);
+    expect(manifest).toMatchObject({ format: 'manabox_csv', include_prices: false });
+    expect(manifest.collections).toEqual([
+      {
+        name: 'ManaBox_Collection',
+        file: 'ManaBox_Collection.csv',
+        protected: false,
+        rows: 3,
+        copies: 6,
+        rows_left_out: 0,
+      },
+      {
+        name: 'protected/precons/Spooky',
+        file: 'protected/precons/Spooky.csv',
+        protected: true,
+        rows: 2,
+        copies: 2,
+        rows_left_out: 1,
+      },
+    ]);
+    const textZip = await unzip(
+      new Uint8Array(await (await open(await linkFor({ collection: 'all', format: 'text' }))).arrayBuffer()),
+    );
+    expect(textZip['protected/precons/Spooky.txt']).toMatch(/^1 Reanimate.*\n1 Missing Card \(ZZZ\) 1\n$/);
+  });
+
+  it('works three times, then refuses', async () => {
+    const url = await linkFor({ collection: 'ManaBox_Collection' });
+    for (let use = 0; use < 3; use += 1) expect((await open(url)).status).toBe(200);
+    const refused = await open(url);
+    expect(refused.status).toBe(403);
+    expect(await refused.text()).toContain('invalid, expired or used up');
+    expect(await events('download_served')).toHaveLength(3);
+    expect(JSON.parse((await events('download_refused'))[0].detail)).toEqual({ reason: 'used up' });
+  });
+
+  it('opens only for the link’s own person, signed in through Access', async () => {
+    const url = await linkFor({ collection: 'ManaBox_Collection' });
+    expect((await open(url, OTHER)).status).toBe(403);
+    expect((await open(url, null)).status).toBe(403);
+    expect((await events('download_refused')).map((event) => JSON.parse(event.detail).reason)).toEqual([
+      'signed-in person is not the link’s user',
+      'missing Access assertion',
+    ]);
+    // Neither refusal used up the link.
+    expect((await open(url)).status).toBe(200);
+  });
+
+  it('refuses tampered, expired and wrong-purpose tokens', async () => {
+    const url = await linkFor({ collection: 'ManaBox_Collection' });
+    const token = url.searchParams.get('token');
+    const [body, signature] = token.split('.');
+    const forged = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/')));
+    forged.collection = 'all';
+    const forgedBody = btoa(JSON.stringify(forged)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    url.searchParams.set('token', `${forgedBody}.${signature}`);
+    expect((await open(url)).status).toBe(403);
+
+    const userId = (await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(OWNER).first()).id;
+    const claims = { user: userId, collection: 'all', format: 'text', prices: false };
+    const expired = await signLink(env.DOWNLOAD_SIGNING_KEY, DOWNLOAD_PURPOSE, claims, {
+      now: Date.now() - 3_600_000,
+      ttlMs: 60_000,
+    });
+    url.searchParams.set('token', expired.token);
+    expect((await open(url)).status).toBe(403);
+    const upload = await signLink(env.DOWNLOAD_SIGNING_KEY, 'upload', claims, { now: Date.now(), ttlMs: 60_000 });
+    url.searchParams.set('token', upload.token);
+    expect((await open(url)).status).toBe(403);
+    expect((await events('download_refused')).map((event) => JSON.parse(event.detail).reason)).toEqual([
+      'bad signature',
+      'expired',
+      'link made for something else',
+    ]);
+  });
+
+  it('refuses unknown collections, and says when downloads are not set up', async () => {
+    expect(await callTool(owner, 'get_download_link', { collection: 'Nope' })).toMatchObject({
+      isError: true,
+      text: 'No collection named Nope; collection_summary lists yours',
+    });
+    const response = await mcp(
+      owner.tokens.access_token,
+      'tools/call',
+      { name: 'get_download_link', arguments: { collection: 'all' } },
+      { DOWNLOAD_SIGNING_KEY: '' },
+    );
+    expect((await response.json()).result.content[0].text).toBe('Downloads are not set up on this server yet.');
+  });
+});
+
+describe('get_workflow and prompts', () => {
+  const TOOL_NAMES = new Set(['whoami', ...TOOLS.map((tool) => tool.name)]);
+
+  it('returns a playbook', async () => {
+    const { text } = await callTool(owner, 'get_workflow', { name: 'new-deck' });
+    expect(text).toMatch(/^# Brewing a new deck/);
+    expect(text).toContain("can't save them yet");
+    expect((await callTool(owner, 'get_workflow', { name: 'nope' })).isError).toBeTruthy();
+  });
+
+  it('offers every playbook as a prompt', async () => {
+    const list = await (await mcp(owner.tokens.access_token, 'prompts/list')).json();
+    expect(list.result.prompts.map((prompt) => prompt.name)).toEqual(WORKFLOWS.map((workflow) => workflow.name));
+    const prompt = await (await mcp(owner.tokens.access_token, 'prompts/get', { name: 'deck-review' })).json();
+    expect(prompt.result.messages[0].content.text).toMatch(/^# Reviewing a deck/);
+  });
+
+  it.each(WORKFLOWS.map((workflow) => [workflow.name, workflow.text]))(
+    '%s names only this server’s tools, not mtg-manager’s commands',
+    (_name, text) => {
+      expect(text).not.toMatch(/mise run|\b(?:deck|collection|card|scryfall|edhrec):[a-z]/);
+      for (const [named] of text.matchAll(/\b(?:search|get|list|show|deck|check|export|rank|collection)_[a-z_]+\b/g)) {
+        expect(TOOL_NAMES, named).toContain(named);
+      }
+    },
+  );
+});
+
 // Every tool, called by someone else, sees nothing of the owner's. A new tool fails this until added.
 const ISOLATION = {
   search_cards: [{ include_protected: true }, (text) => expect(text).toMatch(/^0 cards$/m)],
@@ -337,6 +526,8 @@ const ISOLATION = {
   deck_stats: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
   check_deck: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
   export_deck: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
+  get_download_link: [{ collection: 'all' }, (text) => expect(text).toBe('No collections to download yet.')],
+  get_workflow: [{ name: 'collection-survey' }, (text) => expect(text).toMatch(/^# Surveying the collection/)],
 };
 
 describe('isolation between people', () => {

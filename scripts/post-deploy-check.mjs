@@ -89,7 +89,7 @@ export function buildChecks(origin, fetchImpl = fetch) {
     [
       'Cloudflare Access guards the browser routes',
       async () => {
-        for (const path of ['/authorize', '/callback']) {
+        for (const path of ['/authorize', '/callback', '/download']) {
           const response = await get(path);
           const location = response.headers.get('location') ?? '';
           const viaAccess =

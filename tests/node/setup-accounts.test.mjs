@@ -23,7 +23,7 @@ describe('the WAF path allowlist', () => {
   });
 
   it('puts Access only in front of browser routes', () => {
-    expect(ACCESS_PATHS).toEqual(['/authorize', '/callback']);
+    expect(ACCESS_PATHS).toEqual(['/authorize', '/callback', '/download']);
     for (const path of ['/mcp', '/token', '/register']) expect(ACCESS_PATHS).not.toContain(path);
   });
 

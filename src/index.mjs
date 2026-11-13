@@ -6,6 +6,7 @@ import { handleBrowserAuth } from './auth/flow.mjs';
 import { registrationPolicy } from './auth/registration.mjs';
 import { activeUser, logAuthEvent } from './auth/users.mjs';
 import { isAllowedEmail, readConfig } from './config.mjs';
+import { handleDownload } from './downloads.mjs';
 import { clientIp, notFound, withSecurityHeaders } from './http.mjs';
 import { handleMcpRequest } from './mcp/server.mjs';
 import { matchRoute } from './routes.mjs';
@@ -63,6 +64,7 @@ const defaultHandler = {
     if (pathname === '/authorize' || pathname === '/callback') {
       return handleBrowserAuth(request, env, readConfig(env), pathname);
     }
+    if (pathname === '/download') return handleDownload(request, env, readConfig(env));
     return notFound();
   },
 };

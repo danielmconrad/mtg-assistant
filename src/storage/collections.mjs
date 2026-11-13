@@ -83,6 +83,26 @@ export async function loadCollections(db, userId, { only = [], own } = {}) {
   };
 }
 
+// Collections with their stored rows (ManaBox's other columns included), for downloads. A text row
+// matched by name alone gets its printing's set and number. names limits which; all when omitted.
+export async function collectionsForExport(db, userId, names) {
+  const all = await listCollections(db, userId);
+  const selected = names ? all.filter((collection) => names.includes(collection.name)) : all;
+  const { results } = await db
+    .prepare(
+      `SELECT e.*, COALESCE(e.set_code, p.set_code) AS set_code,
+              COALESCE(e.collector_number, p.collector_number) AS collector_number
+       FROM collection_entries e LEFT JOIN printings p ON p.id = e.scryfall_id
+       WHERE e.user_id = ? ORDER BY e.collection_id, e.position`,
+    )
+    .bind(userId)
+    .all();
+  return selected.map((collection) => ({
+    ...collection,
+    entries: results.filter((entry) => entry.collection_id === collection.id),
+  }));
+}
+
 // Every Scryfall ID a set of collections names, for loading their cards.
 export const printingIdsOf = (collections) => [
   ...new Set(collections.sources.flatMap((source) => source.rows.map((row) => row.scryfallId)).filter(Boolean)),
