@@ -227,22 +227,26 @@ const lines = (text) => escapeHtml(text).replace(/\n/g, '<br>');
 const count = (number, noun) => `${number} ${noun}${number === 1 ? '' : 's'}`;
 
 function formPage(email, token, { target = 'binder', collection = '', mode = 'merge', problem } = {}) {
-  const radio = (name, value, current, label) =>
-    `<label><input type="radio" name="${name}" value="${value}"${current === value ? ' checked' : ''}> ${label}</label><br>`;
+  const radio = (name, value, current, label, detail) =>
+    `<label class="choice"><input type="radio" name="${name}" value="${value}"${current === value ? ' checked' : ''}><span><b>${label}</b><small>${detail}</small></span></label>`;
   return htmlPage(
     'Import cards',
     `<h1>Import cards</h1>
-<p>Signed in through Cloudflare Access as <strong>${escapeHtml(email)}</strong>.</p>
+<p>Signed in as <strong>${escapeHtml(email)}</strong>.</p>
 ${problem ? `<p class="warn">${lines(problem)}</p>` : ''}
 <form method="post" action="/upload" enctype="multipart/form-data">
   <input type="hidden" name="step" value="preview">
   <input type="hidden" name="token" value="${escapeHtml(token)}">
   <p><label>A ManaBox CSV export (.csv) or a text list (.txt), 5 MB at most<br>
     <input type="file" name="file" accept=".csv,.txt" required></label></p>
-  <p>${radio('target', 'collection', target, 'The whole collection, from a ManaBox CSV export: one binder per ManaBox binder, with ManaBox decks as protected deck binders')}${radio('target', 'binder', target, 'One binder:')}
-  <label>Binder (a new name starts a new one)<br>
-    <input name="collection" value="${escapeHtml(collection)}" maxlength="120"></label></p>
-  <p>${radio('mode', 'merge', mode, 'Merge: add the file’s cards')}${radio('mode', 'replace', mode, 'Replace: the binder, or the whole collection, becomes exactly the file')}</p>
+  <fieldset><legend>Import into</legend>
+  ${radio('target', 'collection', target, 'The whole collection, from a ManaBox CSV export', 'One binder per ManaBox binder, with ManaBox decks as protected deck binders.')}
+  ${radio('target', 'binder', target, 'One binder', 'Named below. A new name starts a new binder.')}
+  <label>Binder name
+    <input name="collection" value="${escapeHtml(collection)}" maxlength="120"></label></fieldset>
+  <fieldset><legend>How</legend>
+  ${radio('mode', 'merge', mode, 'Merge', 'Add the file’s cards to what’s there.')}
+  ${radio('mode', 'replace', mode, 'Replace', 'The binder, or the whole collection, becomes exactly the file.')}</fieldset>
   <p><button>Preview</button></p>
 </form>`,
     { status: problem ? 400 : 200 },
