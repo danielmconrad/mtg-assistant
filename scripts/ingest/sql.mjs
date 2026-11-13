@@ -49,6 +49,10 @@ export const TABLES = {
     ],
   },
   prices: { key: 'printing_id', columns: ['printing_id', 'usd', 'usd_foil', 'usd_etched', 'eur', 'hash'] },
+  commander_pool: {
+    key: 'oracle_id',
+    columns: ['oracle_id', 'identity', 'themes', 'tribes', 'is_land', 'can_command', 'hash'],
+  },
 };
 
 const bytes = (text) => new TextEncoder().encode(text).length;
@@ -153,6 +157,8 @@ export function ingestStatements(diff, meta) {
     ...ftsInsertStatements(written),
     ...upsertStatements('printings', diff.printings.upserts),
     ...upsertStatements('prices', diff.prices.upserts),
+    ...deleteStatements('commander_pool', diff.commander_pool.deletes),
+    ...upsertStatements('commander_pool', diff.commander_pool.upserts),
     ...metaStatements(meta),
   ];
 }

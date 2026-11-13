@@ -195,13 +195,21 @@ function noncreatureSubtypes(cards) {
   return subtypes;
 }
 
+// The creature types in cards' type lines, sorted, as a list a server can store (the ingest does).
+export function creatureTypeList(cards) {
+  const excluded = noncreatureSubtypes(cards);
+  return [
+    ...new Set(cards.flatMap(creatureTypes).filter((type) => type.length >= MIN_TYPE_LENGTH && !excluded.has(type))),
+  ].sort();
+}
+
 // The creature types in cards' type lines, and one pattern that finds any of them, singular or plural,
 // in rules text.
-export function creatureTypeVocabulary(cards) {
-  const excluded = noncreatureSubtypes(cards);
-  const types = new Set(
-    cards.flatMap(creatureTypes).filter((type) => type.length >= MIN_TYPE_LENGTH && !excluded.has(type)),
-  );
+export const creatureTypeVocabulary = (cards) => vocabularyOf(creatureTypeList(cards));
+
+// The vocabulary for a list of creature types, as creatureTypeVocabulary builds it.
+export function vocabularyOf(typeList) {
+  const types = new Set(typeList);
   const typeOf = new Map(
     [...types].flatMap((type) => [
       [type, type],
