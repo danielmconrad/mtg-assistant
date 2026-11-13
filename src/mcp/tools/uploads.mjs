@@ -106,7 +106,7 @@ export const UPLOAD_TOOLS = [
     name: 'import_binder',
     title: 'Import a binder',
     description:
-      'Fill one binder from a pasted list (Moxfield, Archidekt, Arena or ManaBox text lines), merged in or replacing the binder’s cards; or, without cards, a link to a page where the person uploads a file (ManaBox CSV or text list) for the binder. create: true starts a new binder. Built decks’ binders change only with their decks. Logged for collection_changes.',
+      'Bring one binder over from another app: fill it from a pasted list (Moxfield, Archidekt, Arena or ManaBox text lines), merged in or replacing the binder’s cards; or, without cards, a link to a page where the person uploads a file (ManaBox CSV or text list) for the binder. create: true starts a new binder. Built decks’ binders change only with their decks. Logged for collection_changes.',
     schema: z
       .object({
         binder: binderName.describe('The binder’s name, as collection_summary lists it'),
@@ -117,7 +117,7 @@ export const UPLOAD_TOOLS = [
           .optional()
           .describe('One card per line: 2 Sol Ring (C21) 263, *F* for foil; leave out for an upload link'),
         mode: mode.default('merge').describe('merge (default): add the cards; replace: the binder becomes the list'),
-        create: z.boolean().default(false),
+        create: z.boolean().default(false).describe('Start a new binder with this name'),
         protected: z.boolean().default(false).describe('With create: protect the new binder'),
         note: z.string().min(1).max(500).optional().describe('Why, for the change log'),
       })
