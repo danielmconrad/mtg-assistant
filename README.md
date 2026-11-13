@@ -9,8 +9,8 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 logic is ported to `src/core`, each person's collections and decks live in D1, and these read-only tools are
 live: `search_cards`, `get_cards`, `collection_summary`, `rank_commanders`, `list_decks`, `show_deck`,
 `deck_stats`, `check_deck`, `export_deck`, `get_download_link`, `get_workflow` and `whoami`. Milestone 2 (writes)
-is under way: decks can be created, edited, verified and priced; collection edits, physical-deck moves and
-the upload page come next.
+is under way: decks can be created, edited, verified and priced, and collections changed by text list;
+physical-deck moves and the upload page come next.
 
 ## Tools
 
@@ -50,6 +50,18 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   - **Built decks** keep their card list, and only the physical-deck tools will make a deck built.
   - **Concurrent edits:** a save is refused if the deck changed since it was read, so two edits can't
     silently overwrite each other.
+- **`add_cards`**, **`remove_cards`** and **`collection_changes`**: change one collection from a short text list
+  (`2 Sol Ring (C21) 263 *F*`), and see what changed since a date (`collection:diff`, from a log rather than Git).
+  - **Lines** must each match a card, and a set and number pin the printing. Adding joins a row of the same
+    printing and finish; removing by name alone works only when the collection holds one printing of it.
+    Nothing changes unless every line can be applied.
+  - **New text lists** start with `create: true`, protected in `precons`, `decks` and `protected` folders as
+    migrated ones are. A built deck's own list changes only with its deck.
+  - **One transaction per change:** each change is one D1 batch. A guard moves every touched collection from
+    the revision it was read at to a new one, and each other statement applies only if all the guards did,
+    so two changes at once can't both apply to the same starting point.
+  - **The log:** each change writes one `collection_events` row per card, with the tool, an optional note and
+    a batch ID. Purchase prices are never logged.
 - **`get_download_link`**: a link to one collection, or every collection as a zip with a `manifest.json`, as a
   ManaBox CSV (every column it was imported with, so it reads back), a Moxfield CSV or a text list. Purchase
   prices are left out unless asked for. The link (`/download?token=...`) is HMAC-signed with

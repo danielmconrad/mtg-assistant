@@ -4,6 +4,14 @@
 import { holdDeckCards } from '../core/collection.mjs';
 import { pathMatches } from '../core/glob.mjs';
 
+// Collections in these folders (precons, built decks) are protected: reported, but never used by decks.
+const PROTECTED_FOLDERS = new Set(['precons', 'decks', 'protected']);
+export const isProtectedPath = (path) =>
+  path
+    .split('/')
+    .slice(0, -1)
+    .some((folder) => PROTECTED_FOLDERS.has(folder));
+
 // One stored row as mtg-manager's collection row.
 function toRow(entry, collection) {
   return {
@@ -23,7 +31,7 @@ function toRow(entry, collection) {
 export async function listCollections(db, userId) {
   const { results } = await db
     .prepare(
-      `SELECT c.id, c.name, c.path, c.format, c.protected, c.updated_at,
+      `SELECT c.id, c.name, c.path, c.format, c.protected, c.updated_at, c.revision,
               COUNT(e.id) AS row_count, COALESCE(SUM(e.quantity), 0) AS copies,
               COALESCE(SUM(CASE WHEN e.scryfall_id IS NULL THEN 1 ELSE 0 END), 0) AS unresolved_rows
        FROM collections c LEFT JOIN collection_entries e ON e.collection_id = c.id AND e.user_id = c.user_id

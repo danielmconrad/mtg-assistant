@@ -376,6 +376,18 @@ const ISOLATION = {
     { slug: 'bears', ops: [{ op: 'set', field: 'notes', value: 'x' }] },
     (text) => expect(text).toMatch(/No deck named bears/),
   ],
+  add_cards: [
+    { collection: 'binder', cards: '1 Forest' },
+    (text) => expect(text).toMatch(/^No collection named binder \(yours: none yet\)/),
+  ],
+  remove_cards: [
+    { collection: 'binder', cards: '1 Forest' },
+    (text) => expect(text).toMatch(/^No collection named binder \(yours: none yet\)/),
+  ],
+  collection_changes: [
+    { since: '2026-01-01' },
+    (text) => expect(text).toMatch(/^No collection changes since 2026-01-01\./),
+  ],
   get_download_link: [{ collection: 'all' }, (text) => expect(text).toBe('No collections to download yet.')],
   get_workflow: [{ name: 'collection-survey' }, (text) => expect(text).toMatch(/^# Surveying the collection/)],
 };

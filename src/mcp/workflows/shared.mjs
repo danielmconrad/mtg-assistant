@@ -1,3 +1,3 @@
-// What the deck playbooks say about saving, while collections can't be edited yet.
+// What the deck playbooks say about saving decks and changing collections.
 export const DECK_SAVING =
-  "create_deck and update_deck save decks; each save is checked against the deck schema and records lowest_legal_bracket. Collections can't be edited through these tools yet: cards the person buys stay unowned here until they add them to a collection themselves.";
+  "create_deck and update_deck save decks; each save is checked against the deck schema and records lowest_legal_bracket. Collections change only when the person says their cards did: add_cards once they have bought cards, remove_cards when they sell or trade them. Drafts don't reserve cards.";

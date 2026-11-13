@@ -47,5 +47,5 @@ Search every card for ones the person has no available copy of, for the deck's c
 
 ## 6. After the person buys cards
 
-Once the bought cards are in a collection, make each swap with update_deck: remove_upgrade for its add, then swap (out: the cut, in: the add, reason) in the same call.`,
+Once the person says they have the cards, add them with add_cards (to the collection they name), then make each swap with update_deck: remove_upgrade for its add, then swap (out: the cut, in: the add, reason) in the same call.`,
 };

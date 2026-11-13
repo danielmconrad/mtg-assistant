@@ -1,0 +1,186 @@
+// Changing a person's collections: adding and removing copies, creating text collections, and the
+// event log collection_changes reads. A change is planned from the rows as read, then written as one D1
+// batch that applies only if every collection it touches is still at the revision it was read at.
+// Every statement filters on userId, which callers take from the verified token.
+import { isProtectedPath } from './collections.mjs';
+
+// A collection name the server may create: folders and a name of letters, digits, spaces, dots,
+// underscores and hyphens, as mtg-manager's files were named (binders/Alphabetized).
+const NAME_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$/;
+export const isValidCollectionName = (name) =>
+  name.length <= 120 && name.split('/').every((segment) => NAME_SEGMENT.test(segment) && !segment.endsWith('.'));
+
+export function newTextCollection(name, now) {
+  const path = `collections/${name}.txt`;
+  const at = new Date(now).toISOString();
+  return {
+    id: crypto.randomUUID(),
+    name,
+    path,
+    format: 'text',
+    protected: isProtectedPath(path) ? 1 : 0,
+    created_at: at,
+    updated_at: at,
+    revision: null,
+    isNew: true,
+  };
+}
+
+// A collection's stored rows in order, each with its card's oracle ID, for planning a change.
+export async function entriesFor(db, userId, collectionId) {
+  const { results } = await db
+    .prepare(
+      `SELECT e.*, p.oracle_id FROM collection_entries e LEFT JOIN printings p ON p.id = e.scryfall_id
+       WHERE e.user_id = ? AND e.collection_id = ? ORDER BY e.position`,
+    )
+    .bind(userId, collectionId)
+    .all();
+  return results;
+}
+
+// A row that more copies of the same printing and finish can join: a plain row (not a proxy or in a
+// deck binder) with the same printing given the same way.
+const joins = (entry, copy) =>
+  entry.scryfall_id === copy.scryfallId &&
+  entry.finish === copy.finish &&
+  !entry.is_proxy &&
+  !entry.in_deck_binder &&
+  (entry.set_code === null) === (copy.set === undefined);
+
+// The row changes that add copies ([{ name, scryfallId, set?, collectorNumber?, finish, quantity }]) to
+// a collection whose rows are entries: more copies on a matching row, or new rows at the end.
+export function planAdd(entries, copies) {
+  const updates = new Map();
+  const inserts = [];
+  let next = entries.reduce((last, entry) => Math.max(last, entry.position), -1) + 1;
+  for (const copy of copies) {
+    const entry = entries.find((candidate) => joins(candidate, copy));
+    if (entry) {
+      updates.set(entry.id, (updates.get(entry.id) ?? entry.quantity) + copy.quantity);
+      continue;
+    }
+    const pending = inserts.find((candidate) => joins(candidate, copy));
+    if (pending) pending.quantity += copy.quantity;
+    else {
+      inserts.push({
+        position: next,
+        name: copy.name,
+        quantity: copy.quantity,
+        scryfall_id: copy.scryfallId,
+        set_code: copy.set ?? null,
+        collector_number: copy.collectorNumber ?? null,
+        finish: copy.finish,
+        is_proxy: 0,
+        in_deck_binder: 0,
+      });
+      next += 1;
+    }
+  }
+  return { updates, inserts, deletes: [] };
+}
+
+// The row changes that take copies out: takes is [{ entry, quantity }], each from one row. A row left
+// with none is deleted.
+export function planRemove(takes) {
+  const left = new Map();
+  for (const { entry, quantity } of takes) left.set(entry.id, (left.get(entry.id) ?? entry.quantity) - quantity);
+  const updates = new Map([...left].filter(([, quantity]) => quantity > 0));
+  const deletes = [...left].filter(([, quantity]) => quantity <= 0).map(([id]) => id);
+  return { updates, inserts: [], deletes };
+}
+
+// Writes planned changes to collections as one batch. changes is [{ collection, plan, events }], where
+// events are [{ name, scryfallId, finish, change }]. Returns false, writing nothing, when any collection
+// changed since it was read (or a new one's name was taken meanwhile).
+export async function applyCollectionChanges(db, userId, changes, { source, note = null, now }) {
+  const revision = crypto.randomUUID();
+  const at = new Date(now).toISOString();
+  // Each guard moves a collection to this change's revision only from the revision it was read at; every
+  // other statement applies only when all of them did.
+  const guards = changes.map(({ collection }) =>
+    collection.isNew
+      ? db
+          .prepare(
+            `INSERT INTO collections (id, user_id, name, path, format, protected, created_at, updated_at, revision)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, name) DO NOTHING`,
+          )
+          .bind(collection.id, userId, collection.name, collection.path, 'text', collection.protected, at, at, revision)
+      : db
+          .prepare(
+            `UPDATE collections SET revision = ?, updated_at = ?
+             WHERE id = ? AND user_id = ? AND COALESCE(revision, '') = ?`,
+          )
+          .bind(revision, at, collection.id, userId, collection.revision ?? ''),
+  );
+  const applies = `(SELECT COUNT(*) FROM collections WHERE user_id = ? AND revision = ?) = ?`;
+  const guard = [userId, revision, changes.length];
+  const statements = changes.flatMap(({ collection, plan, events }) => [
+    ...[...plan.updates].map(([id, quantity]) =>
+      db
+        .prepare(`UPDATE collection_entries SET quantity = ? WHERE id = ? AND user_id = ? AND ${applies}`)
+        .bind(quantity, id, userId, ...guard),
+    ),
+    ...plan.deletes.map((id) =>
+      db
+        .prepare(`DELETE FROM collection_entries WHERE id = ? AND user_id = ? AND ${applies}`)
+        .bind(id, userId, ...guard),
+    ),
+    ...plan.inserts.map((row) =>
+      db
+        .prepare(
+          `INSERT INTO collection_entries (user_id, collection_id, position, name, quantity, scryfall_id, set_code,
+             collector_number, finish, is_proxy, in_deck_binder, source_record)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL WHERE ${applies}`,
+        )
+        .bind(
+          userId,
+          collection.id,
+          row.position,
+          row.name,
+          row.quantity,
+          row.scryfall_id,
+          row.set_code,
+          row.collector_number,
+          row.finish,
+          row.is_proxy,
+          row.in_deck_binder,
+          ...guard,
+        ),
+    ),
+    ...events.map((event) =>
+      db
+        .prepare(
+          `INSERT INTO collection_events (user_id, batch_id, at, source, collection_name, name, scryfall_id, finish,
+             change, note)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${applies}`,
+        )
+        .bind(
+          userId,
+          revision,
+          at,
+          source,
+          collection.name,
+          event.name,
+          event.scryfallId ?? null,
+          event.finish ?? null,
+          event.change,
+          note,
+          ...guard,
+        ),
+    ),
+  ]);
+  const results = await db.batch([...guards, ...statements]);
+  return results.slice(0, guards.length).every(({ meta }) => meta.changes === 1);
+}
+
+// Events since a time (ISO), oldest first, optionally for one collection.
+export async function collectionEvents(db, userId, { since, collection }) {
+  const { results } = await db
+    .prepare(
+      `SELECT batch_id, at, source, collection_name, name, change, note FROM collection_events
+       WHERE user_id = ? AND at >= ? AND (? IS NULL OR collection_name = ?) ORDER BY id`,
+    )
+    .bind(userId, since, collection ?? null, collection ?? null)
+    .all();
+  return results;
+}
