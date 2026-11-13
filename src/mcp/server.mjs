@@ -1,6 +1,8 @@
 // The MCP server: one instance per request (stateless Streamable HTTP), built for the signed-in user.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { ToolError } from './tools/shared.mjs';
+import { TOOLS } from './tools/index.mjs';
 
 export const SERVER_INFO = { name: 'mtg-assistant', version: '0.1.0' };
 
@@ -9,8 +11,25 @@ export const INSTRUCTIONS = `MTG Assistant manages one person's Magic: The Gathe
 Rules: never invent card text, legality, ownership, prices or test results; use the tools and say when data is missing.
 Each user sees only their own data.`;
 
+// Runs a tool for the signed-in user. ToolErrors are the caller's to see; anything else is logged and
+// reported generically, so internals never reach the client.
+function runTool(tool, user, env) {
+  return async (args) => {
+    try {
+      return await tool.handler(args, { db: env.DB, user, now: Date.now() });
+    } catch (error) {
+      if (error instanceof ToolError) return { isError: true, content: [{ type: 'text', text: error.message }] };
+      console.error(`tool ${tool.name} failed`, error?.stack ?? error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `${tool.name} failed unexpectedly; try again or narrow the request.` }],
+      };
+    }
+  };
+}
+
 // Every tool registers here. user is { id, email } from the verified token, never from tool arguments.
-export function buildServer(user) {
+export function buildServer(user, env) {
   const server = new McpServer(SERVER_INFO, { instructions: INSTRUCTIONS });
 
   server.registerTool(
@@ -26,11 +45,24 @@ export function buildServer(user) {
     }),
   );
 
+  for (const tool of TOOLS) {
+    server.registerTool(
+      tool.name,
+      {
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.schema,
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      runTool(tool, user, env),
+    );
+  }
+
   return server;
 }
 
-export async function handleMcpRequest(request, user) {
-  const server = buildServer(user);
+export async function handleMcpRequest(request, user, env) {
+  const server = buildServer(user, env);
   // Stateless: no session IDs, and JSON responses rather than SSE streams.
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,

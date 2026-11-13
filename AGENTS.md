@@ -28,6 +28,11 @@ outrank convenience.
 - Escape everything from a request or an OAuth client before putting it in HTML (`escapeHtml` in
   `src/http.mjs`).
 - D1 migrations are additive only, so a deploy can apply them before the new code is live.
+- Add tools to `src/mcp/tools/` and the `TOOLS` list, each with a strict zod schema and a row in the isolation
+  table in `tests/worker/tools.test.mjs`. Throw `ToolError` for problems the caller should see; anything
+  else reaches Claude only as a generic failure. Check user regexes with `checkPattern`.
+- A SQL prefilter for a search must keep a superset of what `src/core` keeps; extend
+  `tests/worker/search-prefilter.test.mjs` when you change one.
 - Record security-relevant outcomes with `logAuthEvent`. Never log tokens, secrets or purchase prices.
 
 ## Ported logic
