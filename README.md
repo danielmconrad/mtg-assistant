@@ -33,6 +33,12 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   - **What a call loads:** that compact table, plus full card data only for the candidates and the person's own
     cards.
   - **Parity:** a test checks that the result equals mtg-manager's ranking over the full card set.
+- **`refresh_edhrec`** (`edhrec:refresh`): fetches EDHREC's commander pages, named or the top of
+  `rank_commanders`, at most 10 a call and one a second (`RL_EDHREC` spaces them across every caller). Pages are
+  shared, kept in D1's `edhrec_pages` for 30 days, and `rank_commanders` then shows how much of each the person
+  owns. EDHREC's JSON is undocumented, so an unexpected shape stops the refresh and caches nothing.
+  - **Outbound requests** go through `src/outbound.mjs`: HTTPS to `json.edhrec.com` and `archidekt.com` only,
+    each redirect checked against the same list, and responses capped at 4 MB. No tool fetches an arbitrary URL.
 - **`list_decks`**, **`show_deck`**, **`deck_stats`**, **`check_deck`** and **`export_deck`** (`deck:show`,
   `deck:stats`, `deck:check`, `deck:export`): the person's decks.
 - **`verify_deck`**, **`deck_candidates`** and **`deck_upgrades`** (`deck:verify`, `deck:candidates`,

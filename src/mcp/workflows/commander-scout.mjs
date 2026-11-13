@@ -32,7 +32,13 @@ For each commander's rules text, the tool finds the themes it cares about (token
 
 The tests are rough rules-text patterns. Tribe counts include cards that only name the type, and themes overlap. They find leads; they don't judge fit. Run a few sorts and filters, then shortlist 10 to 20 commanders whose main theme carries the lift.
 
-EDHREC's per-commander synergy data isn't loaded on this server yet, so sort: edhrec falls back to lift. Don't quote EDHREC synergy or deck shares from memory.
+Check the shortlist against EDHREC, whose commander pages list the cards real decks play with each commander. refresh_edhrec fetches up to 10 pages a call, one a second, either named (commanders: [...]) or the top of the same ranking (top: 10 with the same filters). Pages are shared and kept 30 days (max_age_days, force). Then rank_commanders with sort: edhrec shows, for each commander with a page:
+- Listed cards owned: how many of the cards on its page are available.
+- Share of its synergy: the owned share of EDHREC's positive synergy (how much more often a card is played with this commander than with others of its colors). The best single measure of owning its signature cards.
+- Share of an average deck: weighted by how often decks play each card, so staples count. A high deck share with a low synergy share means a generic pile of good cards.
+- Most synergy owned: the owned cards EDHREC ties most closely to it. Read them; they're the engine already owned.
+
+When lift and EDHREC disagree, find out why. High lift with low synergy share means the theme tests matched cards those decks don't play; low lift with high synergy share means a plan the tests don't recognize. A page built from fewer than about 100 decks is thin evidence. EDHREC's JSON is undocumented: if refresh_edhrec stops on the response's shape, say so rather than guessing, and never quote EDHREC numbers from memory.
 
 ## 2. Read the best few
 
