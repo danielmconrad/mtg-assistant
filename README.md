@@ -8,8 +8,9 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 **Status:** Milestone 1 (read-only) is complete. Every card on Scryfall is loaded into D1 nightly, mtg-manager's
 logic is ported to `src/core`, each person's collections and decks live in D1, and these read-only tools are
 live: `search_cards`, `get_cards`, `collection_summary`, `rank_commanders`, `list_decks`, `show_deck`,
-`deck_stats`, `check_deck`, `export_deck`, `get_download_link`, `get_workflow` and `whoami`. Milestone 2 (writing
-decks and collections) is next.
+`deck_stats`, `check_deck`, `export_deck`, `get_download_link`, `get_workflow` and `whoami`. Milestone 2 (writes)
+is under way: decks can be created, edited, verified and priced; collection edits, physical-deck moves and
+the upload page come next.
 
 ## Tools
 
@@ -34,6 +35,21 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   - **Parity:** a test checks that the result equals mtg-manager's ranking over the full card set.
 - **`list_decks`**, **`show_deck`**, **`deck_stats`**, **`check_deck`** and **`export_deck`** (`deck:show`,
   `deck:stats`, `deck:check`, `deck:export`): the person's decks.
+- **`verify_deck`**, **`deck_candidates`** and **`deck_upgrades`** (`deck:verify`, `deck:candidates`,
+  `deck:upgrades`): whether a deck is ready to hand off, the strong cards it leaves out, and what it still needs
+  to buy against its budget. With no decklist files on the server, `verify_deck` skips that check.
+- **`create_deck`** and **`update_deck`** (`deck:new`, `deck:swap` and hand edits to `deck.yaml`): a new draft
+  from the brief, and changes as a list of operations (add, remove, swap, set_role, set_commanders, consider,
+  upgrades, history, playtests, and `set` for the deck's fields), all saved together or not at all.
+  - **Card names** are checked against the card data and saved in its spelling; unknown ones get suggestions.
+  - **Swaps** go through mtg-manager's own `withMainboardSwaps`, so the reason and history are recorded as
+    `deck:swap` recorded them.
+  - **Every save** is validated against the deck schema (and the upgrades must still apply), records
+    `lowest_legal_bracket` from the cards, and removes a `plays_like_bracket` judged for an older card list,
+    as `deck:files` did.
+  - **Built decks** keep their card list, and only the physical-deck tools will make a deck built.
+  - **Concurrent edits:** a save is refused if the deck changed since it was read, so two edits can't
+    silently overwrite each other.
 - **`get_download_link`**: a link to one collection, or every collection as a zip with a `manifest.json`, as a
   ManaBox CSV (every column it was imported with, so it reads back), a Moxfield CSV or a text list. Purchase
   prices are left out unless asked for. The link (`/download?token=...`) is HMAC-signed with
@@ -42,8 +58,7 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   built when the link is opened and never stored. Each download or refusal is written to `auth_events`.
 - **`get_workflow`**: mtg-manager's skills as playbooks rewritten for these tools (`src/mcp/workflows/`):
   `new-deck`, `collection-survey`, `commander-scout`, `deck-review`, `deck-upgrades`, `deckbuilding-strategy` and
-  `formats`. Each is also an MCP prompt, and the server instructions point Claude to them. Until Milestone 2,
-  they tell Claude to propose deck changes rather than claim to save them.
+  `formats`. Each is also an MCP prompt, and the server instructions point Claude to them.
 
 How the tools handle safety and input:
 

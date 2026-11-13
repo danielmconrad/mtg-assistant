@@ -1,3 +1,3 @@
-// What the deck playbooks say while this server can read decks but not yet save them.
-export const NO_DECK_WRITES =
-  "This server can read decks but can't save them yet. Give the person the decklist or the changes in chat, and say they aren't saved; never claim a deck was created or edited. check_deck, deck_stats and show_deck work only on decks already saved, so for a new list, check sizes, color identity, legality (get_cards) and ownership (search_cards) yourself and say so.";
+// What the deck playbooks say about saving, while collections can't be edited yet.
+export const DECK_SAVING =
+  "create_deck and update_deck save decks; each save is checked against the deck schema and records lowest_legal_bracket. Collections can't be edited through these tools yet: cards the person buys stay unowned here until they add them to a collection themselves.";

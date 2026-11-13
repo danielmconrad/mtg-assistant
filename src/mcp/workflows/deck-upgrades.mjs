@@ -1,5 +1,5 @@
 // mtg-manager's deck-upgrades skill, with its commands as this server's tools.
-import { NO_DECK_WRITES } from './shared.mjs';
+import { DECK_SAVING } from './shared.mjs';
 
 export const DECK_UPGRADES = {
   name: 'deck-upgrades',
@@ -8,14 +8,14 @@ export const DECK_UPGRADES = {
     'Suggest and price purchases for a deck as paired swaps that keep it inside its budget, bracket and color identity.',
   text: `# Upgrading a deck
 
-Upgrades are suggestions: paired swaps (a card to add, a card to cut, and why) that are never made to the baseline without approval. A card the person approved but hasn't bought is still unowned.
+Upgrades are suggestions: paired swaps (a card to add, a card to cut, and why) kept in the deck's upgrades, and never made to the baseline without approval. A card the person approved but hasn't bought is still unowned.
 
-${NO_DECK_WRITES}
+${DECK_SAVING}
 
 ## 1. Before suggesting anything
 
-- Budget: the deck needs one (amount and currency). Ask if it's missing.
-- Baseline: the deck should pass check_deck first (see the deck-review playbook), so each upgrade replaces a known weak card.
+- Budget: the deck needs one (amount and currency; update_deck set budget). Ask if it's missing.
+- Baseline: the deck should pass verify_deck first (see the deck-review playbook), so each upgrade replaces a known weak card.
 
 ## 2. Find candidates from data, not memory
 
@@ -38,13 +38,14 @@ Search every card for ones the person has no available copy of, for the deck's c
 - Checks: check_deck judges a saved deck's upgrades too. It fails adds that raise the bracket above the target (Game Changers, extra turns, mass land denial), adds outside the color identity, cards not legal in the format, and second copies in a singleton deck.
 - What no tool sees: read the adds for two-card combos (Heliod, Sun-Crowned with Walking Ballista, for instance) and chained extra turns, against the target bracket. Say which bracket the upgraded deck would play like, and warn about or drop an add that takes it above the target.
 
-## 5. Price and report
+## 5. Record and price
 
-1. Price each add with get_cards, and total them against the budget. Unknown prices stay unknown, never zero.
-2. Describe the upgraded deck from the tools, for a deck whose upgrades are saved: deck_stats with upgrades_applied: true, and show_deck with upgrades: apply and oracle: true.
-3. export_deck with upgrades: split lists the cuts and adds in their own sections, for buying.
+1. Record each pair with update_deck add_upgrade (add, cut, reason; add_quantity and cut_quantity default to 1), most impact first.
+2. deck_upgrades: report the total against the budget. Unknown prices stay unknown, never zero.
+3. check_deck, which judges the upgraded list too.
+4. Describe the upgraded deck from the tools: deck_stats with upgrades_applied: true, and show_deck with upgrades: apply and oracle: true. export_deck with upgrades: split lists the cuts and adds in their own sections, for buying.
 
 ## 6. After the person buys cards
 
-Once the bought cards are in a collection, each swap can be made in the deck and its upgrade entry removed.`,
+Once the bought cards are in a collection, make each swap with update_deck: remove_upgrade for its add, then swap (out: the cut, in: the add, reason) in the same call.`,
 };
