@@ -1,4 +1,4 @@
-// create_deck and update_deck, and the review tools that read what they save (verify_deck,
+// draft_deck and update_deck, and the review tools that read what they save (verify_deck,
 // deck_candidates, deck_upgrades), on the shared fixture (tool-fixtures.mjs).
 import { env } from 'cloudflare:test';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -18,9 +18,9 @@ const userId = async (email) => (await env.DB.prepare('SELECT id FROM users WHER
 const stored = async (slug, email = OWNER) => (await loadDeckForUpdate(env.DB, await userId(email), slug))?.deck;
 const today = () => new Date().toISOString().slice(0, 10);
 
-describe('create_deck', () => {
+describe('draft_deck', () => {
   it('creates a draft with the card data’s spelling and records its bracket', async () => {
-    const result = await callTool(owner, 'create_deck', {
+    const result = await callTool(owner, 'draft_deck', {
       slug: 'elf-ball',
       commanders: ['ayula, queen among bears'],
       target_bracket: 2,
@@ -54,25 +54,25 @@ describe('create_deck', () => {
   });
 
   it('refuses a taken slug, unknown cards and a commander deck without commanders', async () => {
-    expect(await callTool(owner, 'create_deck', { slug: 'bears', commanders: ['Ayula, Queen Among Bears'] })).toEqual({
+    expect(await callTool(owner, 'draft_deck', { slug: 'bears', commanders: ['Ayula, Queen Among Bears'] })).toEqual({
       isError: true,
       text: 'A deck named bears already exists; update_deck changes it',
     });
     expect(
       (
-        await callTool(owner, 'create_deck', {
+        await callTool(owner, 'draft_deck', {
           slug: 'x',
           commanders: ['Ayula, Queen Among Bears'],
           mainboard: [{ name: 'Llanowar Elfs' }],
         })
       ).text,
     ).toBe('Llanowar Elfs: no card by that name; did you mean Llanowar Elves?');
-    expect((await callTool(owner, 'create_deck', { slug: 'x' })).text).toMatch(/Commander decks need commanders/);
+    expect((await callTool(owner, 'draft_deck', { slug: 'x' })).text).toMatch(/Commander decks need commanders/);
     expect(await stored('x')).toBeUndefined();
   });
 
   it('creates casual decks without commanders or brackets', async () => {
-    const result = await callTool(owner, 'create_deck', {
+    const result = await callTool(owner, 'draft_deck', {
       slug: 'bolts',
       format: 'casual-60',
       mainboard: [{ name: 'Lightning Bolt', quantity: 4 }],
@@ -254,7 +254,7 @@ describe('update_deck', () => {
 
   it('changes only the caller’s own deck', async () => {
     expect(
-      await callTool(other, 'create_deck', { slug: 'bears', commanders: ['Ayula, Queen Among Bears'] }),
+      await callTool(other, 'draft_deck', { slug: 'bears', commanders: ['Ayula, Queen Among Bears'] }),
     ).toMatchObject({
       isError: false,
     });

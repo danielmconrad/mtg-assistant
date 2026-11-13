@@ -59,5 +59,5 @@ For each direction give:
 - Gaps: weak roles, and protected copies that would help.
 - Upgrades: the rough upgrade need against the budget.
 
-Then wait for the person to choose. Don't run create_deck or write a list before they pick.`,
+Then wait for the person to choose. Don't run draft_deck or write a list before they pick.`,
 };

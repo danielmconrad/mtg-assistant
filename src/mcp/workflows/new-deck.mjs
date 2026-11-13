@@ -41,13 +41,13 @@ Ask only about what the person hasn't said. A standing answer from earlier in th
 
 ## 2. Survey, propose directions, then stop
 
-Follow the collection-survey playbook: it sizes each candidate by role and engine depth and proposes two or three directions. When the person is open to buying the commander, follow commander-scout instead. Then wait for the person to choose. Don't run create_deck or write a list before they pick.
+Follow the collection-survey playbook: it sizes each candidate by role and engine depth and proposes two or three directions. When the person is open to buying the commander, follow commander-scout instead. Then wait for the person to choose. Don't run draft_deck or write a list before they pick.
 
 An unowned commander goes in the commanders like any other. Until it's in a binder, check_deck reports it as unavailable. Build and review the rest of the deck as usual, and note the purchase (the commander and its price) in the deck's notes.
 
 ## 3. Plan before choosing cards
 
-Create the deck with create_deck: slug, commanders (two for partners), format, target_bracket, budget, max_card_price, allow_proxies, unlimited_basics, collection_source and a primer, from the brief. A slug is lowercase words joined by hyphens.
+Draft the deck with draft_deck: slug, commanders (two for partners), format, target_bracket, budget, max_card_price, allow_proxies, unlimited_basics, collection_source and a primer, from the brief. A slug is lowercase words joined by hyphens.
 
 - Primer: how the deck wins, in one or two sentences (deckbuilding-strategy section 1).
 - Engine map, in notes (update_deck set notes): what the commander and key engine cards use up and produce (life-gain events, Food, Treasure, any token, counters, spells cast, cards drawn), and which owned cards turn one into another (section 1a).
