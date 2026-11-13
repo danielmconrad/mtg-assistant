@@ -7,7 +7,7 @@ const events = async (type) =>
 
 describe('route allowlist', () => {
   it('404s paths outside the route map', async () => {
-    for (const path of ['/', '/admin', '/.env', '/mcp/../admin', '/wp-login.php', '/upload']) {
+    for (const path of ['/', '/admin', '/.env', '/mcp/../admin', '/wp-login.php', '/uploads']) {
       expect((await call(path)).status, path).toBe(404);
     }
   });

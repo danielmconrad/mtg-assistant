@@ -10,6 +10,7 @@ import { handleDownload } from './downloads.mjs';
 import { clientIp, notFound, withSecurityHeaders } from './http.mjs';
 import { handleMcpRequest } from './mcp/server.mjs';
 import { matchRoute } from './routes.mjs';
+import { handleUpload } from './uploads.mjs';
 
 const ACCESS_TOKEN_TTL = 60 * 60;
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60;
@@ -65,6 +66,7 @@ const defaultHandler = {
       return handleBrowserAuth(request, env, readConfig(env), pathname);
     }
     if (pathname === '/download') return handleDownload(request, env, readConfig(env));
+    if (pathname === '/upload') return handleUpload(request, env, readConfig(env));
     return notFound();
   },
 };

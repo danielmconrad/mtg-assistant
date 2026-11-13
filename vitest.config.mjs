@@ -14,6 +14,7 @@ export const TEST_BINDINGS = {
   ACCESS_AUD: 'test-access-aud',
   OAUTH_CLIENT_ALERT_THRESHOLD: '5',
   DOWNLOAD_SIGNING_KEY: 'test-download-signing-key-not-a-real-secret',
+  UPLOAD_SIGNING_KEY: 'test-upload-signing-key-not-a-real-secret!',
 };
 
 export default defineConfig(async () => {

@@ -395,6 +395,7 @@ const ISOLATION = {
     { slug: 'bears', out: ['Sol Ring'], in: ['Lightning Bolt'], to: 'binder' },
     (text) => expect(text).toMatch(/No deck named bears/),
   ],
+  get_upload_link: [{}, (text) => expect(text).toMatch(/^Upload page:\nhttps:\/\/\S+\/upload\?token=/)],
   get_workflow: [{ name: 'collection-survey' }, (text) => expect(text).toMatch(/^# Surveying the collection/)],
 };
 

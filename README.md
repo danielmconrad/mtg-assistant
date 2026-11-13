@@ -9,8 +9,8 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 logic is ported to `src/core`, each person's collections and decks live in D1, and these read-only tools are
 live: `search_cards`, `get_cards`, `collection_summary`, `rank_commanders`, `list_decks`, `show_deck`,
 `deck_stats`, `check_deck`, `export_deck`, `get_download_link`, `get_workflow` and `whoami`. Milestone 2 (writes)
-is under way: decks can be created, edited, verified and priced, collections changed by text list, and decks
-built, torn down and swapped physically; the upload page comes next.
+is complete: decks can be created, edited, verified and priced, collections changed by text list or by
+uploading a file, and decks built, torn down and swapped physically.
 
 ## Tools
 
@@ -79,6 +79,19 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   `DOWNLOAD_SIGNING_KEY` (`src/links.mjs`), expires after 15 minutes and works three times, counted in D1's
   `link_uses`. Cloudflare Access guards it, and the Access identity must be the link's own person. The file is
   built when the link is opened and never stored. Each download or refusal is written to `auth_events`.
+- **`get_upload_link`** and the upload page: a link to `/upload`, where the person picks a ManaBox CSV export
+  or a text list (5 MB at most), a collection (a new name starts one, in the file's format) and whether to merge
+  the file into it or replace it.
+  - **The link** is signed with `UPLOAD_SIGNING_KEY`, lasts 10 minutes and allows three previews. Access guards
+    the page, and the Access identity must be the link's person. Posts must come from the page's own origin.
+  - **Preview first:** the page lists every card whose count would change and the decks naming them. The raw
+    file is kept in the private R2 bucket (`UPLOADS`; no public access, no r2.dev URL), and a row in `uploads`
+    holds the preview with its own CSRF token.
+  - **Applying** works once per preview. It replans from the stored file and applies only if the collection is
+    still at the revision it was previewed at, so what applies is what was shown. ManaBox's other columns are
+    kept for downloads, and the log records the net change per card (`source: upload`), never prices.
+  - **Large files:** rows are written as JSON chunks through SQLite's `json_each`, so thousands of rows take a
+    handful of D1 statements.
 - **`get_workflow`**: mtg-manager's skills as playbooks rewritten for these tools (`src/mcp/workflows/`):
   `new-deck`, `collection-survey`, `commander-scout`, `deck-review`, `deck-upgrades`, `deckbuilding-strategy` and
   `formats`. Each is also an MCP prompt, and the server instructions point Claude to them.
@@ -99,9 +112,9 @@ How the tools handle safety and input:
 Claude (any app) ──MCP over HTTPS──▶ Cloudflare edge (WAF, rate limit) ──▶ Worker /mcp
                                                                             │ OAuth 2.1 bearer token
 Your browser ──▶ Cloudflare Access (Google) ──▶ Worker /authorize, /callback│ Google sign-in
-                                                 Worker /download           │ signed link
+                                                 Worker /download, /upload  │ signed link
                                                                             ▼
-                                                              D1 (users, audit log), KV (OAuth state)
+                                        D1 (users, audit log), KV (OAuth state), R2 (uploaded files)
 ```
 
 - **One Worker** (`src/index.mjs`) serves the OAuth endpoints from
