@@ -1,5 +1,5 @@
 // mtg-manager's new-deck skill, with its commands as this server's tools.
-import { NO_DECK_WRITES } from './shared.mjs';
+import { DECK_SAVING } from './shared.mjs';
 
 export const NEW_DECK = {
   name: 'new-deck',
@@ -16,7 +16,7 @@ Only unprotected collections supply cards, protected copies are only mentioned, 
 - deck-review: step 6, the check-and-fix loop.
 - deck-upgrades: step 8, purchases.
 
-${NO_DECK_WRITES}
+${DECK_SAVING}
 
 ## 0. Preflight
 
@@ -41,16 +41,18 @@ Ask only about what the person hasn't said. A standing answer from earlier in th
 
 ## 2. Survey, propose directions, then stop
 
-Follow the collection-survey playbook: it sizes each candidate by role and engine depth and proposes two or three directions. When the person is open to buying the commander, follow commander-scout instead. Then wait for the person to choose. Don't write a list before they pick.
+Follow the collection-survey playbook: it sizes each candidate by role and engine depth and proposes two or three directions. When the person is open to buying the commander, follow commander-scout instead. Then wait for the person to choose. Don't run create_deck or write a list before they pick.
 
 An unowned commander goes in the commanders like any other. Until it's in a collection, check_deck reports it as unavailable. Build and review the rest of the deck as usual, and note the purchase (the commander and its price) in the deck's notes.
 
 ## 3. Plan before choosing cards
 
+Create the deck with create_deck: slug, commanders (two for partners), format, target_bracket, budget, max_card_price, allow_proxies, unlimited_basics, collection_source and a primer, from the brief. A slug is lowercase words joined by hyphens.
+
 - Primer: how the deck wins, in one or two sentences (deckbuilding-strategy section 1).
-- Engine map, for the notes: what the commander and key engine cards use up and produce (life-gain events, Food, Treasure, any token, counters, spells cast, cards drawn), and which owned cards turn one into another (section 1a).
-- Role targets: Commander decks are compared with the Command Zone template by default. Set targets when the plan departs from it (say, two wipes in a go-wide deck), and always for Custom Dollar Brawl and casual-60 (sections 3 and 5).
-- Power notes: the bracket's limits that no tool checks (two-card combos, chained extra turns), and how the deck stays inside them.
+- Engine map, in notes (update_deck set notes): what the commander and key engine cards use up and produce (life-gain events, Food, Treasure, any token, counters, spells cast, cards drawn), and which owned cards turn one into another (section 1a).
+- role_targets: Commander decks are compared with the Command Zone template by default. Set targets when the plan departs from it (say, two wipes in a go-wide deck), and always for Custom Dollar Brawl and casual-60 (sections 3 and 5).
+- power_notes: the bracket's limits that no tool checks (two-card combos, chained extra turns), and how the deck stays inside them.
 
 ## 4. Build a shortlist
 
@@ -65,21 +67,28 @@ Choose from a shortlist, never from one read of the whole pool: a 500-line dump 
 
 In this order:
 
-1. Nonland cards to the role targets, from the shortlist: the plan's enablers and payoffs first, then the role cards. Give each entry a role (land, ramp, draw, removal, wipe, protection, wincon, synergy; several where it does several jobs).
-2. Check the shape: the curve, role counts against targets, and color pips (deck_stats, once the deck is saved).
+1. Nonland cards to the role targets, from the shortlist, with update_deck add operations: the plan's enablers and payoffs first, then the role cards. Give each entry a role (land, ramp, draw, removal, wipe, protection, wincon, synergy; comma-separate several).
+2. Check the shape: deck_stats for the curve, role counts against targets, and color pips.
 3. Mana base: take the land count from Karsten's suggestion (deckbuilding-strategy section 4) and explain any gap of more than a land. Choose utility and dual lands with search_cards (commander: C, type: ["land"], oracle: true). Count the lands that enter tapped, give each color sources in proportion to its pips, then fill with basics.
 4. Size: exactly 100 cards including commanders (60 for Custom Dollar Brawl), or at least 60 for casual.
-5. Considered: record the close calls with a one-line reason as you go.
+5. Considered: record the close calls with a one-line reason as you go (update_deck consider).
 
-Commanders go with the commanders, not the mainboard.
+Commanders go in commanders, not the mainboard. Run check_deck after each round of edits.
 
 ## 6. Review until it passes
 
-Follow the deck-review playbook: check, read the list, cover the strong cards left out, compare with the frameworks, fix, and repeat.
+Follow the deck-review playbook: check, read the list, cover the left-out cards, compare with the frameworks, fix, and repeat until verify_deck passes.
 
 ## 7. Explain and hand off
 
-Explain the deck: the game plan, the mana base, key inclusions, hard cuts, known weaknesses, and which bracket it plays like against its target. The hand-off names what's still unknown: unknown prices, and checks no tool makes. An unowned commander leaves the deck failing ownership until it's bought; say what it costs.
+Explain the deck: the game plan, the mana base (point to deck_stats), key inclusions, hard cuts, known weaknesses, and which bracket it plays like against its target.
+
+The deck is done when:
+
+- verify_deck passes. It fails on any check_deck error, a placeholder primer, a top-20 left-out card without a considered reason, upgrades over budget, or a plays_like_bracket not judged for this list. Explain every NOTE it prints (land gaps, role counts outside their targets).
+- plays_like_bracket is judged for the final list (update_deck set), with the reasons in power_notes. Any change to the card list removes it, so judge it last (deckbuilding-strategy section 2).
+- The summary names what's still unknown: unknown prices, and checks no tool makes.
+- An unowned commander: verify_deck can't pass until it's bought. Hand the deck off as a draft whose only ERROR is the commander's ownership, say what it costs, and verify again once a collection includes it.
 
 If the person wants to paste a saved deck into a site, export_deck gives a paste-ready list (upgrades: apply for a playtest list with every upgrade made).
 

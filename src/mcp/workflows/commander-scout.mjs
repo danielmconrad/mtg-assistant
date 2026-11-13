@@ -61,5 +61,5 @@ For each:
 - Gaps and extra purchases: weak roles, and cheap missing pieces with prices from get_cards.
 - Overlap: decks already using the same cards. Drafts don't reserve cards, but the person should know.
 
-Then wait for the person to choose. Don't buy anything or write a decklist until they pick; if they want to build it, continue with the new-deck playbook's step 3. An unowned commander stays unowned until it's in a collection, and check_deck reports it until then.`,
+Then wait for the person to choose. Don't buy anything or run create_deck until they pick; if they want to build it, continue with the new-deck playbook's step 3. An unowned commander stays unowned until it's in a collection, and check_deck reports it until then.`,
 };
