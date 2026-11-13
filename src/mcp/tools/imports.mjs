@@ -1,12 +1,12 @@
 // import_deck: a draft deck from a public Archidekt deck or a pasted list. Archidekt has a public JSON API;
 // Moxfield refuses requests that don't come from a browser, so its decks come in as their text export.
-// Either way the cards are checked against the card data and the deck is saved as create_deck saves it.
+// Either way the cards are checked against the card data and the deck is saved as draft_deck saves it.
 import { z } from 'zod';
 import { normalizeName } from '../../core/card.mjs';
 import { OutboundRefused, boundedJson, outboundFetch } from '../../outbound.mjs';
 import { resolvedRows } from './collection-writes.mjs';
 import { loadDeckForUpdate } from '../../storage/decks.mjs';
-import { createDeckLines, createSchema, updateDeckLines } from './deck-writes.mjs';
+import { draftDeckLines, draftSchema, updateDeckLines } from './deck-writes.mjs';
 import { slug } from './decks.mjs';
 import { ToolError, textResult } from './shared.mjs';
 
@@ -205,13 +205,13 @@ function withCommanders(deck, names) {
   };
 }
 
-// create_deck's arguments for the imported cards.
+// draft_deck's arguments for the imported cards.
 function createArgs(args, source) {
   const deck = withCommanders(source, args.commanders);
   const deckSlug = args.slug ?? (source.name && slugFrom(source.name));
   if (!deckSlug) throw new ToolError('Pass slug: the new deck’s name as lowercase words joined by hyphens');
   if (!deck.mainboard.length && !deck.commanders.length) throw new ToolError('The deck has no cards');
-  const parsed = createSchema.safeParse({
+  const parsed = draftSchema.safeParse({
     slug: deckSlug,
     name: args.name ?? source.name,
     format: args.format ?? (deck.commanders.length ? 'commander' : 'casual-60'),
@@ -257,7 +257,7 @@ async function importDeck(args, { db, user, env, now }) {
   const context = { db, user, now };
   const lines =
     args.mode === 'new'
-      ? await createDeckLines(createArgs(args, source), context)
+      ? await draftDeckLines(createArgs(args, source), context)
       : await intoDeck(args, withCommanders(source, args.commanders), context);
   if (source.leftOut) lines.push(`Left out ${source.leftOut} sideboard, maybeboard and companion cards.`);
   if (args.mode === 'new') lines.push('Its primer is a placeholder; check_deck shows what the deck still needs.');

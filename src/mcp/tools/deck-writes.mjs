@@ -1,4 +1,4 @@
-// create_deck and update_deck: mtg-manager's deck:new, deck:swap and hand edits to deck.yaml, as
+// draft_deck and update_deck: mtg-manager's deck:new, deck:swap and hand edits to deck.yaml, as
 // structured changes. Every save validates against schemas/deck.schema.json and records
 // lowest_legal_bracket from the cards, removing plays_like_bracket when the card list changed, as
 // deck:files did. A save is refused if the deck changed since it was read.
@@ -324,7 +324,7 @@ async function applyOperations(db, deck, ops, now) {
   return updated;
 }
 
-export const createSchema = z
+export const draftSchema = z
   .object({
     slug: slug.describe('A new slug: lowercase words joined by hyphens, e.g. kwia-lotus-engine'),
     name: z.string().min(1).max(200).optional().describe('Titled from the slug when left out'),
@@ -350,7 +350,7 @@ export const createSchema = z
   .strict();
 
 // Creates the deck and returns the reply's lines. import_deck creates decks through it too.
-export async function createDeckLines(args, { db, user, now }) {
+export async function draftDeckLines(args, { db, user, now }) {
   const collectionSource = args.collection_source && checkGlobs(args.collection_source);
   const names = await canonicalNames(db, [...args.commanders, ...args.mainboard.map((entry) => entry.name)]);
   let deck;
@@ -381,7 +381,7 @@ export async function createDeckLines(args, { db, user, now }) {
   return [`Created ${args.slug} (${deck.format}, draft). ${sizeLine(deck)}`, ...notes];
 }
 
-const createDeck = async (args, ctx) => textResult(await createDeckLines(args, ctx));
+const draftDeck = async (args, ctx) => textResult(await draftDeckLines(args, ctx));
 
 const updateSchema = z
   .object({
@@ -418,13 +418,13 @@ const WRITES = { readOnlyHint: false, openWorldHint: false };
 
 export const DECK_WRITE_TOOLS = [
   {
-    name: 'create_deck',
-    title: 'Create a deck',
+    name: 'draft_deck',
+    title: 'Draft a deck',
     description:
-      'Create a draft deck from the brief: format, commanders, target bracket, budget, price cap, ownership policies, primer, and optionally its first mainboard cards with roles. Card names are checked against the card data.',
-    schema: createSchema,
+      'Start a new draft deck from the brief: format, commanders, target bracket, budget, price cap, ownership policies, primer, and optionally its first mainboard cards with roles. Card names are checked against the card data.',
+    schema: draftSchema,
     annotations: { ...WRITES, destructiveHint: false, idempotentHint: false },
-    handler: createDeck,
+    handler: draftDeck,
   },
   {
     name: 'update_deck',

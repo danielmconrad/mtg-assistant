@@ -53,7 +53,7 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
 - **`verify_deck`**, **`deck_candidates`** and **`deck_upgrades`** (`deck:verify`, `deck:candidates`,
   `deck:upgrades`): whether a deck is ready to hand off, the strong cards it leaves out, and what it still needs
   to buy against its budget. With no decklist files on the server, `verify_deck` skips that check.
-- **`create_deck`** and **`update_deck`** (`deck:new`, `deck:swap` and hand edits to `deck.yaml`): a new draft
+- **`draft_deck`** and **`update_deck`** (`deck:new`, `deck:swap` and hand edits to `deck.yaml`): a new draft
   from the brief, and changes as a list of operations (add, remove, swap, set_role, set_commanders, consider,
   upgrades, history, playtests, and `set` for the deck's fields), all saved together or not at all.
   - **Card names** are checked against the card data and saved in its spelling; unknown ones get suggestions.
@@ -67,7 +67,7 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   10 a minute per person with `RL_IMPORT`) or a pasted Moxfield, Archidekt or Arena text export. Moxfield links
   can't be fetched, since Moxfield refuses requests that don't come from a browser. Commander sections and
   Archidekt's Commander category become commanders, and sideboard and maybeboard cards are left out. `mode: new`
-  saves a draft as `create_deck` does; `merge` and `replace` change an existing draft's cards through
+  saves a draft as `draft_deck` does; `merge` and `replace` change an existing draft's cards through
   `update_deck` (merging keeps its commanders). Built decks' cards change only through `swap_deck`.
   - **Concurrent edits:** a save is refused if the deck changed since it was read, so two edits can't
     silently overwrite each other.

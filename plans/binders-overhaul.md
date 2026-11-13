@@ -44,7 +44,7 @@ Decisions (2026-11-13):
 - Moxfield and Archidekt collection CSVs: added once there are real sample exports to match (Moxfield:
   Count, Name, Edition, Collector Number, Foil, ...; Archidekt: user-chosen columns, Tags as binders).
 
-## PR 3: draft_deck
+## PR 3: draft_deck (done)
 
 - `create_deck` becomes `draft_deck`. Server instructions, playbooks, README, isolation table.
 

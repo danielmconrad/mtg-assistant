@@ -73,7 +73,7 @@ describe('build_deck', () => {
     expect((await callTool(owner, 'build_deck', { slug: 'bears' })).text).toBe(
       'bears is already built into collections/Bears.txt',
     );
-    await callTool(owner, 'create_deck', { slug: 'short', commanders: ['Ayula, Queen Among Bears'] });
+    await callTool(owner, 'draft_deck', { slug: 'short', commanders: ['Ayula, Queen Among Bears'] });
     expect((await callTool(owner, 'build_deck', { slug: 'short' })).text).toMatch(
       /Not built: short must pass check_deck first\.$/,
     );
