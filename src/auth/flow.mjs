@@ -23,7 +23,7 @@ function consentPage(details, handle, email) {
     ? '<p class="warn"><strong>This sends access to an app on your computer.</strong> Continue only if you just started connecting from it, such as Claude Code.</p>'
     : '';
   return `<h1>Allow ${name} to use MTG Assistant?</h1>
-<p>Signed in through Cloudflare Access as <strong>${escapeHtml(email)}</strong>. Next you'll confirm with Google.</p>
+<p>Signed in as <strong>${escapeHtml(email)}</strong>. Next you'll confirm with Google.</p>
 <p>${origin} Access will be sent to <strong>${escapeHtml(details.redirectHost)}</strong>.</p>
 ${loopback}
 <form method="post" action="/authorize">

@@ -90,6 +90,11 @@ describe('security headers', () => {
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).not.toContain('unsafe-inline');
+    expect(csp).not.toContain('script-src');
+    // Google Fonts and the name bar's inline SVG texture are the only outside resources.
+    expect(csp).toMatch(/style-src 'nonce-[^']+' https:\/\/fonts\.googleapis\.com;/);
+    expect(csp).toContain('font-src https://fonts.gstatic.com;');
+    expect(csp).toContain('img-src data:;');
     expect(response.headers.get('X-Frame-Options')).toBe('DENY');
   });
 });
