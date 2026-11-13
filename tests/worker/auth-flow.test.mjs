@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
+import { activeUser } from '../../src/auth/users.mjs';
 import {
   CLAUDE_CALLBACK,
   RESOURCE,
@@ -192,5 +193,47 @@ describe('tokens', () => {
     expect(asDaniel).toContain(DANIEL);
     expect(asDaniel).not.toContain(SECOND);
     expect(asSecond).toContain(SECOND);
+  });
+});
+
+describe('reserved accounts', () => {
+  const reserve = (email, id = crypto.randomUUID()) =>
+    env.DB.prepare(
+      "INSERT INTO users (id, email, google_sub, pending, created_at, last_login_at) VALUES (?, ?, ?, 1, 'then', 'then')",
+    )
+      .bind(id, email, `pending:${id}`)
+      .run()
+      .then(() => id);
+
+  it('are claimed by the first sign-in with their email, keeping their ID', async () => {
+    const id = await reserve(SECOND);
+    const { tokens } = await signIn(SECOND);
+    expect(await toolText(await mcp(tokens.access_token, 'tools/call', { name: 'whoami', arguments: {} }))).toContain(
+      SECOND,
+    );
+    const user = await env.DB.prepare('SELECT id, google_sub, pending FROM users WHERE email = ?').bind(SECOND).first();
+    expect(user).toEqual({ id, google_sub: `google-${SECOND}`, pending: 0 });
+    expect(await eventTypes()).toContain('account_claimed');
+  });
+
+  it('are pinned once claimed: a different Google account is refused afterwards', async () => {
+    await reserve(SECOND);
+    await signIn(SECOND);
+    const flow = await authorize({ email: SECOND, googleOverrides: { sub: 'google-someone-else' } });
+    expect(flow.callback.status).toBe(403);
+  });
+
+  it('cannot be claimed by a Google account that already has an account', async () => {
+    await signIn(DANIEL);
+    await reserve(SECOND);
+    const flow = await authorize({ email: SECOND, googleOverrides: { sub: `google-${DANIEL}` } });
+    expect(flow.callback.status).toBe(403);
+    const user = await env.DB.prepare('SELECT pending FROM users WHERE email = ?').bind(SECOND).first();
+    expect(user.pending).toBe(1);
+  });
+
+  it('give no access while still pending, even with the placeholder identity', async () => {
+    const id = await reserve(SECOND);
+    expect(await activeUser(env.DB, { userId: id, email: SECOND, sub: `pending:${id}` })).toBeNull();
   });
 });

@@ -119,7 +119,7 @@ async function finishSignIn(request, env, config, access) {
       },
     );
   }
-  const { user, problem } = await signInUser(env.DB, google);
+  const { user, problem, claimed } = await signInUser(env.DB, google);
   if (problem) return refuse(env, request, 'login_failed', problem, { email: google.email });
   const { redirectTo } = await oauth.completeAuthorization({
     request: original,
@@ -128,6 +128,7 @@ async function finishSignIn(request, env, config, access) {
     scope: original.scope,
     props: { userId: user.id, email: user.email, sub: user.google_sub },
   });
+  if (claimed) await logAuthEvent(env.DB, request, 'account_claimed', { email: user.email });
   await logAuthEvent(env.DB, request, 'login_success', { email: user.email, detail: { clientId: original.clientId } });
   return redirect(redirectTo, headers);
 }

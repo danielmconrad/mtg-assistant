@@ -5,9 +5,9 @@ usable from the Claude mobile, web and desktop apps and from Claude Code. It rep
 [mtg-manager](https://github.com/danielmconrad/mtg-manager) CLI with a Cloudflare Worker at
 `https://mtg-assistant.conrad.tools`.
 
-**Status:** step 3 of the plan. The server signs people in and serves one tool, `whoami`. Every card on
-Scryfall is loaded into D1 nightly, and mtg-manager's logic is ported to `src/core`, reading cards from D1.
-Collections, decks and the Milestone 1 tools come next.
+**Status:** step 4 of the plan. The server signs people in and serves one tool, `whoami`. Every card on
+Scryfall is loaded into D1 nightly, mtg-manager's logic is ported to `src/core`, and each person's collections
+and decks live in D1, migrated from mtg-manager. The Milestone 1 tools come next.
 
 ## How it fits together
 
@@ -86,7 +86,33 @@ it.
   `schemas/deck.schema.json`; a test fails if you forget.
 - **`src/storage/cards.mjs`:** loads just the cards a request needs from D1 and rebuilds mtg-manager's in-memory
   cache from them, so `src/core` runs unchanged. A test checks every rebuilt card against `toCard`.
+- **`src/storage/collections.mjs`, `decks.mjs`:** each person's collections and decks. They're read into the
+  collections model mtg-manager built from files, and every query filters on the signed-in user. Collection
+  paths keep the `collections/` prefix without the owner's folder (`collections/binders/Alphabetized.txt`),
+  so a deck's `collection_source` patterns match as they did. `src/core/glob.mjs` is a pure-JavaScript port
+  of the Node glob matching mtg-manager used, and a test compares the two.
 - **`tests/core/`:** mtg-manager's own tests for the ported modules, now run with Vitest.
+
+## Migrating from mtg-manager
+
+`scripts/migrate-from-mtg-manager.mjs` loads each owner folder's collections and decks for one person:
+
+```sh
+node scripts/migrate-from-mtg-manager.mjs --source ../mtg-manager \
+  --owner conrad=daniel.m.conrad@gmail.com --owner brad=bradleysklenar@gmail.com --remote   # plan only
+# ... --apply to write it
+```
+
+The script works like this:
+
+- **The plan:** without `--apply`, it lists each person's account, their collections (rows, copies,
+  protected or available, and any unmatched text rows) and their decks.
+- **What `--apply` does:** it replaces those people's collections and decks, then reads everything back
+  through the server's loaders to verify it.
+- **Protected collections:** anything under a folder named `precons`, `decks` or `protected`.
+- **Text lists:** rows are matched to printings in the target's card data, so run it after the ingest.
+- **Reserved accounts:** a person who has never signed in gets one, which their first sign-in claims and pins to
+  their Google account.
 
 ## Card data
 

@@ -87,9 +87,9 @@ export async function cardDataMeta(db) {
   };
 }
 
-async function selectRows(db, where, values) {
+async function selectRows(db, where, values, maxParams = MAX_PARAMS) {
   const rows = [];
-  for (const chunk of chunks(values)) {
+  for (const chunk of chunks(values, maxParams)) {
     const placeholders = chunk.map(() => '?').join(', ');
     const { results } = await db
       .prepare(`${SELECT} WHERE ${where(placeholders)}`)
@@ -100,9 +100,9 @@ async function selectRows(db, where, values) {
   return rows;
 }
 
-async function oracleIdsWhere(db, sql, values, paramsPerValue = 1) {
+async function oracleIdsWhere(db, sql, values, { paramsPerValue = 1, maxParams = MAX_PARAMS } = {}) {
   const found = [];
-  for (const chunk of chunks(values, Math.floor(MAX_PARAMS / paramsPerValue))) {
+  for (const chunk of chunks(values, Math.floor(maxParams / paramsPerValue))) {
     const { results } = await db
       .prepare(sql(chunk))
       .bind(...chunk.flat())
@@ -114,8 +114,13 @@ async function oracleIdsWhere(db, sql, values, paramsPerValue = 1) {
 
 // Every printing of the given cards: by Scryfall printing ID, by oracle ID, by exact name (either
 // face, as card-index.mjs matches), or by set and collector number ({ set, collectorNumber }). Whole
-// cards are loaded, every printing, since prices and printing choice look across printings.
-export async function loadCardRows(db, { printingIds = [], oracleIds = [], names = [], printings = [] } = {}) {
+// cards are loaded, every printing, since prices and printing choice look across printings. maxParams
+// is D1's binding limit; a caller that inlines values (the migration script) can pass more.
+export async function loadCardRows(
+  db,
+  { printingIds = [], oracleIds = [], names = [], printings = [] } = {},
+  { maxParams = MAX_PARAMS } = {},
+) {
   const marks = (chunk) => chunk.map(() => '?').join(', ');
   const keys = [...new Set(names.map(normalizeName))];
   const pairs = [
@@ -126,26 +131,23 @@ export async function loadCardRows(db, { printingIds = [], oracleIds = [], names
       }),
     ).values(),
   ];
-  const wanted = new Set([
-    ...oracleIds,
-    ...(await oracleIdsWhere(db, (chunk) => `SELECT oracle_id FROM printings WHERE id IN (${marks(chunk)})`, [
-      ...new Set(printingIds),
-    ])),
-    ...(await oracleIdsWhere(db, (chunk) => `SELECT oracle_id FROM cards WHERE name_key IN (${marks(chunk)})`, keys)),
-    ...(await oracleIdsWhere(
-      db,
-      (chunk) => `SELECT oracle_id FROM cards WHERE front_name_key IN (${marks(chunk)})`,
-      keys,
-    )),
-    ...(await oracleIdsWhere(
-      db,
+  const lookups = [
+    [(chunk) => `SELECT oracle_id FROM printings WHERE id IN (${marks(chunk)})`, [...new Set(printingIds)], 1],
+    [(chunk) => `SELECT oracle_id FROM cards WHERE name_key IN (${marks(chunk)})`, keys, 1],
+    [(chunk) => `SELECT oracle_id FROM cards WHERE front_name_key IN (${marks(chunk)})`, keys, 1],
+    [
+      // A row-value list, not an OR chain: D1 caps expression depth at 100, which ORs count toward.
       (chunk) =>
-        `SELECT oracle_id FROM printings WHERE ${chunk.map(() => '(set_code = ? AND collector_number = ?)').join(' OR ')}`,
+        `SELECT oracle_id FROM printings WHERE (set_code, collector_number) IN (VALUES ${chunk.map(() => '(?, ?)').join(', ')})`,
       pairs,
       2,
-    )),
-  ]);
-  return selectRows(db, (placeholders) => `p.oracle_id IN (${placeholders})`, [...wanted]);
+    ],
+  ];
+  const wanted = new Set(oracleIds);
+  for (const [sql, values, paramsPerValue] of lookups) {
+    for (const oracleId of await oracleIdsWhere(db, sql, values, { paramsPerValue, maxParams })) wanted.add(oracleId);
+  }
+  return selectRows(db, (placeholders) => `p.oracle_id IN (${placeholders})`, [...wanted], maxParams);
 }
 
 // Every printing of every card matching a filter on cards (alias c), such as

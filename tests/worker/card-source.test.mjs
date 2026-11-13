@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { checkDeck } from '../../src/core/rules.mjs';
 import { toCard } from '../../src/core/scryfall.mjs';
 import { cardIndexFor, identityLetters, loadCardRows, loadMatchingRows } from '../../src/storage/cards.mjs';
+import { inlineParams } from '../../scripts/migrate/plan.mjs';
 import { scryfallCard } from '../fixtures/scryfall.mjs';
 import { BUILT, INGESTED, clearCardTables, ingest } from './ingest-helper.mjs';
 
@@ -108,6 +109,22 @@ describe('loadCardRows and cardIndexFor', () => {
     });
     expect(new Set(bySetNumber.map((row) => row.oracle_id))).toEqual(new Set(['forest-oracle']));
     expect(await loadCardRows(env.DB, { names: ['No Such Card'] })).toEqual([]);
+  });
+
+  it('looks up many set and collector numbers at once, within D1’s expression depth limit', async () => {
+    const printings = [
+      ...Array.from({ length: 200 }, (_, index) => ({ set: 'zzz', collectorNumber: String(index) })),
+      { set: 'prm', collectorNumber: '250' },
+    ];
+    // Bound parameters, as the Worker runs it: batches stay under D1's 100-binding limit.
+    const bound = await loadCardRows(env.DB, { printings });
+    expect(new Set(bound.map((row) => row.oracle_id))).toEqual(new Set(['forest-oracle']));
+    // Inlined values in large batches, as the migration script runs it through wrangler.
+    const inlined = {
+      prepare: (sql) => ({ bind: (...params) => ({ all: () => env.DB.prepare(inlineParams(sql, params)).all() }) }),
+    };
+    const big = await loadCardRows(inlined, { printings }, { maxParams: 800 });
+    expect(new Set(big.map((row) => row.oracle_id))).toEqual(new Set(['forest-oracle']));
   });
 
   it('batches past D1’s parameter limit', async () => {
