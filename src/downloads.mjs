@@ -13,7 +13,7 @@ export const DOWNLOAD_TTL_MS = 15 * 60 * 1000;
 // Browsers and link previews may fetch a link before the person does, so it works a few times.
 export const MAX_DOWNLOAD_USES = 3;
 export const DOWNLOAD_FORMATS = ['manabox_csv', 'moxfield_csv', 'text'];
-// The collection value that downloads every collection, as a zip.
+// The collection value that downloads every collection, as a zip or (combine) as one file.
 export const ALL_COLLECTIONS = 'all';
 
 // ManaBox's export columns in its order. Columns a migrated file had beyond these follow them.
@@ -55,11 +55,13 @@ const csv = (columns, records) =>
     .join('\n')}\n`;
 
 // A ManaBox CSV that mtg-manager's parseCollection reads back. Rows with no printing can't be written
-// as ManaBox rows, so they're left out and counted.
+// as ManaBox rows, so they're left out and counted. A combined file names each row's collection as its
+// binder, unless the row came from a ManaBox binder of its own.
 function manaboxCsv(entries, { prices }) {
   const records = entries
     .filter((entry) => entry.scryfall_id)
     .map((entry) => ({
+      ...(entry.binder ? { 'Binder Name': entry.binder } : {}),
       ...JSON.parse(entry.source_record ?? '{}'),
       'Binder Type': entry.in_deck_binder ? 'deck' : 'binder',
       Name: entry.name,
@@ -115,12 +117,24 @@ const safeSegment = (segment) => segment.replace(/[^A-Za-z0-9 ._-]/g, '_').repla
 const zipPath = (name) => name.split('/').filter(Boolean).map(safeSegment).join('/');
 const fileName = (name) => safeSegment(name.replace(/\//g, '-'));
 
-// The file for a link's claims: one collection, or every collection zipped with a manifest. Returns
-// null when a named collection no longer exists.
+// The file for a link's claims: one collection, every collection in one file (combine), or every
+// collection zipped with a manifest. Returns null when a named collection no longer exists.
 export async function buildDownload(db, claims, now) {
   const extension = EXTENSIONS[claims.format];
   const all = claims.collection === ALL_COLLECTIONS;
   const collections = await collectionsForExport(db, claims.user, all ? undefined : [claims.collection]);
+  const date = new Date(now);
+  if (all && claims.combine) {
+    const entries = collections.flatMap((collection) =>
+      collection.entries.map((entry) => ({ ...entry, binder: collection.name })),
+    );
+    const { text } = collectionFile(entries, claims.format, { prices: claims.prices });
+    return {
+      body: text,
+      name: `mtg-collections-${date.toISOString().slice(0, 10)}.${extension}`,
+      type: CONTENT_TYPES[extension],
+    };
+  }
   if (!all) {
     if (!collections.length) return null;
     const [collection] = collections;
@@ -145,7 +159,6 @@ export async function buildDownload(db, claims, now) {
       rows_left_out: leftOut,
     });
   }
-  const date = new Date(now);
   files.push({
     path: 'manifest.json',
     text: `${JSON.stringify({ generated_at: date.toISOString(), format: claims.format, include_prices: claims.prices, collections: manifest }, null, 2)}\n`,
@@ -193,7 +206,12 @@ export async function handleDownload(request, env, config) {
   if (!file) return refuse('collection no longer exists', access.email);
   await logAuthEvent(env.DB, request, 'download_served', {
     email: access.email,
-    detail: { format: claims.format, all: claims.collection === ALL_COLLECTIONS, prices: claims.prices },
+    detail: {
+      format: claims.format,
+      all: claims.collection === ALL_COLLECTIONS,
+      combine: Boolean(claims.combine),
+      prices: claims.prices,
+    },
   });
   return new Response(file.body, {
     headers: {

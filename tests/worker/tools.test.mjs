@@ -211,6 +211,29 @@ describe('get_download_link and /download', () => {
     expect(parseTextCollection(text, 'download')).toHaveLength(3);
   });
 
+  it('combines every collection into one ManaBox CSV, naming each row’s binder', async () => {
+    const { text } = await callTool(owner, 'get_download_link', { collection: 'all', combine: true });
+    expect(text).toContain('every collection (2) as one file');
+    const response = await open(linkIn(text));
+    expect(response.headers.get('Content-Type')).toBe('text/csv; charset=utf-8');
+    expect(response.headers.get('Content-Disposition')).toMatch(
+      /^attachment; filename="mtg-collections-\d{4}-\d{2}-\d{2}\.csv"$/,
+    );
+    const body = await response.text();
+    expect(body.split('\n')[0]).toMatch(/^Binder Name,Binder Type,Name,/);
+    expect(parseCollection(body, 'combined').map((row) => row.name)).toEqual([
+      'Sol Ring',
+      'Llanowar Elves',
+      'Ayula, Queen Among Bears',
+      'Reanimate',
+    ]);
+    expect(body).toMatch(/^protected\/precons\/Spooky,binder,Reanimate,/m);
+    expect(JSON.parse((await events('download_served'))[0].detail)).toMatchObject({ combine: true });
+    expect((await callTool(owner, 'get_download_link', { collection: 'ManaBox_Collection', combine: true })).text).toBe(
+      'combine joins every collection; pass collection "all"',
+    );
+  });
+
   it('zips every collection with a manifest', async () => {
     const { text } = await callTool(owner, 'get_download_link', { collection: 'all' });
     expect(text).toContain('every collection (2) as a zip');

@@ -84,8 +84,8 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
     back to `to`, recording the swap as `update_deck` does; the swapped deck must still pass `check_deck`.
   - **One transaction:** every touched collection and the deck itself are guarded by revision in one D1 batch,
     so a move applies whole or not at all, and the log records it under the tool's name.
-- **`get_download_link`**: a link to one collection, or every collection as a zip with a `manifest.json`, as a
-  ManaBox CSV (every column it was imported with, so it reads back), a Moxfield CSV or a text list. Purchase
+- **`get_download_link`**: a link to one collection, or every collection as a zip with a `manifest.json` or
+  (`combine`) as one file whose `Binder Name` column names each row's collection, as a ManaBox CSV (every column it was imported with, so it reads back), a Moxfield CSV or a text list. Purchase
   prices are left out unless asked for. The link (`/download?token=...`) is HMAC-signed with
   `DOWNLOAD_SIGNING_KEY` (`src/links.mjs`), expires after 15 minutes and works three times, counted in D1's
   `link_uses`. Cloudflare Access guards it, and the Access identity must be the link's own person. The file is
