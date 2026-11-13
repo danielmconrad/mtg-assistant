@@ -1,5 +1,7 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
+import { TOOLS } from '../../src/mcp/tools/index.mjs';
+import { WORKFLOWS } from '../../src/mcp/workflows/index.mjs';
 import { CLAUDE_CALLBACK, ORIGIN, RESOURCE, call, registerClient } from './helpers.mjs';
 
 const events = async (type) =>
@@ -20,6 +22,17 @@ describe('route allowlist', () => {
     expect(html).toContain(`<code class="url">${RESOURCE}</code>`);
     expect(html).toContain(`claude mcp add --transport http mtg-assistant ${RESOURCE}`);
     expect((await call('/', { method: 'POST' })).status).toBe(405);
+  });
+
+  it('lists every tool and playbook on the homepage, each in a named group', async () => {
+    const html = await (await call('/')).text();
+    for (const name of [...TOOLS.map((tool) => tool.name), 'whoami', ...WORKFLOWS.map((workflow) => workflow.name)]) {
+      expect(html, name).toContain(`<code>${name}</code>`);
+    }
+    expect(html).not.toContain('<h3>More</h3>');
+    expect(html).toContain('href="#connect"');
+    expect(html).toContain('id="connect"');
+    expect(html).toContain('id="claude-code"');
   });
 
   it('405s methods a route does not take', async () => {
