@@ -36,11 +36,12 @@ export function textResult(lines, warnings = []) {
 
 const uniqueById = (rows) => [...new Map(rows.map((row) => [row.id, row])).values()];
 
-// The card index for a request: every card the person owns (ownership counts read every row), plus
-// any further cards it names or rows it adds.
-export async function personalIndex(db, userId, { names = [], extraRows = [] } = {}) {
+// The card index for a request: every card the person owns (ownership counts read every row), with the
+// printings src/core reads (plus those in sets and rarities a search names), and any further cards
+// it names or rows it adds.
+export async function personalIndex(db, userId, { names = [], extraRows = [], sets = [], rarities = [] } = {}) {
   const [owned, named] = await Promise.all([
-    loadOwnedRows(db, userId),
+    loadOwnedRows(db, userId, { sets, rarities }),
     names.length ? loadCardRows(db, { names }) : [],
   ]);
   return cardIndexFor(db, uniqueById([...owned, ...named, ...extraRows]));

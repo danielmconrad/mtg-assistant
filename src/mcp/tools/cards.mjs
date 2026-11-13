@@ -14,7 +14,7 @@ import {
   searchFilters,
   sortResults,
 } from '../../core/search.mjs';
-import { loadMatchingRows, nameSuggester } from '../../storage/cards.mjs';
+import { loadMatchingRows, nameSuggester, printingCounts } from '../../storage/cards.mjs';
 import { loadCollections } from '../../storage/collections.mjs';
 import { loadAllDecks } from '../../storage/decks.mjs';
 import { searchPrefilter } from '../../storage/search-sql.mjs';
@@ -121,6 +121,13 @@ function asOptions(args) {
   };
 }
 
+// Set codes as search.mjs reads them: repeated or comma-separated, in Scryfall's lower case.
+const setCodes = (values = []) =>
+  values
+    .flatMap((value) => value.split(','))
+    .map((code) => code.trim().toLowerCase())
+    .filter(Boolean);
+
 async function commanderMask(db, name) {
   const key = name.trim().toLocaleLowerCase('en-US');
   const { results } = await db
@@ -186,7 +193,12 @@ async function searchCards(args, { db, user, now }) {
   const extraRows = args.scope === 'owned' ? [] : await candidateRows(db, args);
   const [collections, { index, meta }] = await Promise.all([
     loadCollections(db, user.id),
-    personalIndex(db, user.id, { names: args.commander ? [args.commander] : [], extraRows }),
+    personalIndex(db, user.id, {
+      names: args.commander ? [args.commander] : [],
+      extraRows,
+      sets: setCodes(args.set),
+      rarities: args.rarity ?? [],
+    }),
   ]);
   const { results, unresolvedRows } = searchCollection(collections, index, filtersFor(args, index));
   const warnings = [staleDataWarning(meta, now)].filter(Boolean);
@@ -211,6 +223,14 @@ async function getCards({ names }, { db, user, now }) {
     loadAllDecks(db, user.id),
   ]);
   const reports = cardReports(names, { index, collections, decks: decks.filter(({ deck }) => isActiveDeck(deck)) });
+  // The index holds only the printings a request reads; report how many Scryfall has.
+  const counts = await printingCounts(
+    db,
+    reports.filter((report) => report.card).map((report) => report.card.oracleId),
+  );
+  for (const report of reports.filter((candidate) => candidate.card)) {
+    report.printings = counts.get(report.card.oracleId) ?? report.printings;
+  }
   // The index holds only the person's and the named cards, so suggestions come from every card's name.
   if (reports.some((report) => report.problem)) {
     const suggest = await nameSuggester(db);

@@ -40,51 +40,75 @@ async function rowsWhere(db, condition, params = []) {
     db
       .prepare(
         `SELECT ${PRINTING_COLUMNS} FROM printings p LEFT JOIN prices pr ON pr.printing_id = p.id
-         WHERE p.oracle_id IN (SELECT c.oracle_id FROM cards c WHERE ${condition})`,
+         WHERE p.oracle_id IN (SELECT c.oracle_id FROM cards c WHERE ${condition}) ORDER BY p.rowid`,
       )
       .bind(...params)
       .all(),
   ]);
-  const byOracleId = new Map(cards.results.map((card) => [card.oracle_id, card]));
-  return printings.results.flatMap((printing) => {
+  return joinRows(cards.results, printings.results);
+}
+
+function joinRows(cards, printings) {
+  const byOracleId = new Map(cards.map((card) => [card.oracle_id, card]));
+  return printings.flatMap((printing) => {
     const card = byOracleId.get(printing.oracle_id);
     return card ? [{ ...card, ...printing }] : [];
   });
 }
 
-// One joined row as a card-model printing (src/core/scryfall.mjs toCard), with every known format
-// filled in as not_legal unless the card is legal, restricted or banned there.
-export function toCardModel(row, { formats, builtAt }) {
-  const legalities = {
-    ...Object.fromEntries(formats.map((format) => [format, 'not_legal'])),
-    ...JSON.parse(row.legalities),
-    ...(row.printing_legalities ? JSON.parse(row.printing_legalities) : {}),
-  };
-  const card = {
-    id: row.id,
-    oracleId: row.oracle_id,
+// A card's own fields, decoded once and shared by its printings (src/core never modifies card objects).
+function cardFields(row, { formats }) {
+  return {
     name: row.name,
     frontName: row.front_name,
-    set: row.set_code,
-    collectorNumber: row.collector_number,
     manaCost: row.mana_cost,
     manaValue: row.mana_value,
     typeLine: row.type_line,
     frontType: row.front_type,
-    flavorName: row.flavor_name,
     oracleText: row.oracle_text,
     keywords: JSON.parse(row.keywords),
     colorIdentity: identityLetters(row.color_identity),
     producedMana: JSON.parse(row.produced_mana),
-    legalities,
+    legalities: {
+      ...Object.fromEntries(formats.map((format) => [format, 'not_legal'])),
+      ...JSON.parse(row.legalities),
+    },
     gameChanger: row.game_changer === 1,
+    edhrecRank: row.edhrec_rank,
+  };
+}
+
+// One joined row as a card-model printing (src/core/scryfall.mjs toCard), with every known format
+// filled in as not_legal unless the card is legal, restricted or banned there. shared holds the
+// card's decoded fields when another printing of it already decoded them.
+export function toCardModel(row, context, shared = cardFields(row, context)) {
+  const card = {
+    id: row.id,
+    oracleId: row.oracle_id,
+    name: shared.name,
+    frontName: shared.frontName,
+    set: row.set_code,
+    collectorNumber: row.collector_number,
+    manaCost: shared.manaCost,
+    manaValue: shared.manaValue,
+    typeLine: shared.typeLine,
+    frontType: shared.frontType,
+    flavorName: row.flavor_name,
+    oracleText: shared.oracleText,
+    keywords: shared.keywords,
+    colorIdentity: shared.colorIdentity,
+    producedMana: shared.producedMana,
+    legalities: row.printing_legalities
+      ? { ...shared.legalities, ...JSON.parse(row.printing_legalities) }
+      : shared.legalities,
+    gameChanger: shared.gameChanger,
     borderColor: row.border_color,
     setType: row.set_type,
     rarity: row.rarity,
-    edhrecRank: row.edhrec_rank,
+    edhrecRank: shared.edhrecRank,
     prices: Object.fromEntries(Object.entries(PRICE_FIELDS).map(([column, field]) => [field, priceText(row[column])])),
     defaultPrinting: row.is_default === 1,
-    fetchedAt: builtAt,
+    fetchedAt: context.builtAt,
   };
   // A printing that differs from its card (a reversible Secret Lair's name) keeps its own values.
   return row.overrides ? { ...card, ...JSON.parse(row.overrides) } : card;
@@ -171,15 +195,72 @@ export async function loadCardRows(
 // { sql: 'c.legal_commander = 1 AND (c.color_identity & ~?) = 0', params: [24] }.
 export const loadMatchingRows = (db, { sql, params = [] }) => rowsWhere(db, sql, params);
 
-// Every printing of every card a person has any copy of, protected collections included: what
-// ownership counts, searches of their collection and printing choices need.
-export const loadOwnedRows = (db, userId) =>
-  rowsWhere(
-    db,
-    `c.oracle_id IN (SELECT p.oracle_id FROM collection_entries e JOIN printings p ON p.id = e.scryfall_id
-      WHERE e.user_id = ?)`,
-    [userId],
-  );
+// Owned cards' oracle IDs, for a user bound as the first parameter.
+const OWNED_ORACLE_IDS = `SELECT DISTINCT op.oracle_id FROM collection_entries oe JOIN printings op ON op.id = oe.scryfall_id
+  WHERE oe.user_id = ?`;
+// Playable as src/core/card.mjs isPlayablePrinting judges it: not gold-bordered, not memorabilia.
+const PLAYABLE = "(p.border_color IS NOT 'gold' AND p.set_type IS NOT 'memorabilia')";
+
+// The cheapest printing per card in one currency, as upgrades.mjs pricedPrintings and cheapestPrice
+// choose: among playable printings when the card has any, else among all, priced above zero.
+const cheapestIn = (currency) => `SELECT id FROM (
+    SELECT id, ROW_NUMBER() OVER (PARTITION BY oracle_id ORDER BY ${currency}, id) AS n FROM priced
+    WHERE (playable OR NOT any_playable) AND ${currency} > 0
+  ) WHERE n = 1`;
+
+// Every card a person has any copy of, protected collections included, with only the printings
+// src/core reads: the ones they own, Scryfall's default, the cheapest in USD and in EUR, and, for a
+// search by set or rarity, the ones in those sets and rarities. That's a few thousand printings
+// instead of every printing of every owned card (about 17,000 for one collection), with the same
+// prices, defaults and printing choices.
+export async function loadOwnedRows(db, userId, { sets = [], rarities = [] } = {}) {
+  const marks = (values) => values.map(() => '?').join(', ');
+  const matching = [
+    sets.length ? `p.set_code IN (${marks(sets)})` : null,
+    rarities.length ? `p.rarity IN (${marks(rarities)})` : null,
+  ].filter(Boolean);
+  const matchingUnion = matching.length
+    ? `UNION SELECT p.id FROM printings p JOIN owned o ON o.oracle_id = p.oracle_id WHERE ${matching.join(' AND ')}`
+    : '';
+  const printingsSql = `
+    WITH owned AS (${OWNED_ORACLE_IDS}),
+    priced AS (
+      SELECT p.id, p.oracle_id, pr.usd, pr.eur, ${PLAYABLE} AS playable,
+             MAX(${PLAYABLE}) OVER (PARTITION BY p.oracle_id) AS any_playable
+      FROM printings p JOIN owned o ON o.oracle_id = p.oracle_id LEFT JOIN prices pr ON pr.printing_id = p.id
+    ),
+    wanted AS (
+      SELECT scryfall_id AS id FROM collection_entries WHERE user_id = ? AND scryfall_id IS NOT NULL
+      UNION SELECT p.id FROM printings p JOIN owned o ON o.oracle_id = p.oracle_id WHERE p.is_default = 1
+      UNION ${cheapestIn('usd')}
+      UNION ${cheapestIn('eur')}
+      ${matchingUnion}
+    )
+    SELECT ${PRINTING_COLUMNS} FROM printings p LEFT JOIN prices pr ON pr.printing_id = p.id
+    WHERE p.id IN (SELECT id FROM wanted) ORDER BY p.rowid`;
+  const [cards, printings] = await Promise.all([
+    db.prepare(`SELECT ${CARD_COLUMNS} FROM cards c WHERE c.oracle_id IN (${OWNED_ORACLE_IDS})`).bind(userId).all(),
+    db
+      .prepare(printingsSql)
+      .bind(userId, userId, ...sets, ...rarities)
+      .all(),
+  ]);
+  return joinRows(cards.results, printings.results);
+}
+
+// How many printings Scryfall has of each card, for reports (a request loads only some of them).
+export async function printingCounts(db, oracleIds) {
+  const counts = new Map();
+  for (const chunk of chunks([...new Set(oracleIds)])) {
+    const placeholders = chunk.map(() => '?').join(', ');
+    const { results } = await db
+      .prepare(`SELECT oracle_id, COUNT(*) AS n FROM printings WHERE oracle_id IN (${placeholders}) GROUP BY oracle_id`)
+      .bind(...chunk)
+      .all();
+    for (const row of results) counts.set(row.oracle_id, row.n);
+  }
+  return counts;
+}
 
 // The formats every card is judged in, from the ingest, or from the loaded rows when an older ingest
 // didn't record them.
@@ -195,7 +276,11 @@ export async function cardIndexFor(db, rows) {
   const meta = await cardDataMeta(db);
   const context = { formats: knownFormats(meta, rows), builtAt: meta.builtAt ?? new Date(0).toISOString() };
   const cards = {};
-  for (const row of rows) cards[row.id] = toCardModel(row, context);
+  const decoded = new Map();
+  for (const row of rows) {
+    if (!decoded.has(row.oracle_id)) decoded.set(row.oracle_id, cardFields(row, context));
+    cards[row.id] = toCardModel(row, context, decoded.get(row.oracle_id));
+  }
   const cache = { version: 7, cards, bulkBuiltAt: meta.builtAt, refreshedAt: meta.ingestedAt };
   return { cache, index: cardIndex(cache), meta };
 }
