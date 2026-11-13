@@ -12,6 +12,9 @@ export const ROUTES = [
   { path: '/callback', methods: ['GET'], limiter: 'RL_AUTH' },
   // A signed collection download (src/downloads.mjs), opened in a browser behind Cloudflare Access.
   { path: '/download', methods: ['GET'], limiter: 'RL_DOWNLOAD' },
+  // The upload page (src/uploads.mjs), from a signed link, behind Cloudflare Access: GET shows the form,
+  // POST previews a file or applies a previewed one.
+  { path: '/upload', methods: ['GET', 'POST'], limiter: 'RL_UPLOAD' },
   // /mcp is limited per user inside the handler, since Anthropic's servers share IPs.
   { path: '/mcp', methods: ['GET', 'POST', 'DELETE', 'OPTIONS'] },
 ];

@@ -2,7 +2,28 @@
 // event log collection_changes reads. A change is planned from the rows as read, then written as one D1
 // batch that applies only if every collection it touches is still at the revision it was read at.
 // Every statement filters on userId, which callers take from the verified token.
+import { parse } from 'csv-parse/sync';
 import { isProtectedPath } from './collections.mjs';
+
+// The ManaBox columns parseCollection already turns into row fields; the rest are kept as JSON.
+const PARSED_COLUMNS = new Set([
+  'Name',
+  'Quantity',
+  'Scryfall ID',
+  'Set code',
+  'Collector number',
+  'Foil',
+  'Proxy',
+  'Binder Type',
+]);
+
+// ManaBox's other columns for each CSV row, by position, so exports can give them back.
+export function sourceRecords(text) {
+  const records = parse(text, { bom: true, skip_empty_lines: true, columns: true });
+  return records.map((record) =>
+    JSON.stringify(Object.fromEntries(Object.entries(record).filter(([column]) => !PARSED_COLUMNS.has(column)))),
+  );
+}
 
 // A collection name the server may create: folders and a name of letters, digits, spaces, dots,
 // underscores and hyphens, as mtg-manager's files were named (binders/Alphabetized).
@@ -10,14 +31,17 @@ const NAME_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$/;
 export const isValidCollectionName = (name) =>
   name.length <= 120 && name.split('/').every((segment) => NAME_SEGMENT.test(segment) && !segment.endsWith('.'));
 
-export function newTextCollection(name, now) {
-  const path = `collections/${name}.txt`;
+const EXTENSIONS = { text: 'txt', manabox_csv: 'csv' };
+
+// A collection to create, as a text list unless format says ManaBox CSV (an uploaded export).
+export function newTextCollection(name, now, format = 'text') {
+  const path = `collections/${name}.${EXTENSIONS[format]}`;
   const at = new Date(now).toISOString();
   return {
     id: crypto.randomUUID(),
     name,
     path,
-    format: 'text',
+    format,
     protected: isProtectedPath(path) ? 1 : 0,
     created_at: at,
     updated_at: at,
@@ -39,16 +63,20 @@ export async function entriesFor(db, userId, collectionId) {
 }
 
 // A row that more copies of the same printing and finish can join: a plain row (not a proxy or in a
-// deck binder) with the same printing given the same way.
+// deck binder) with the same printing given the same way. Proxies and deck-binder copies (from an
+// uploaded ManaBox export) get rows of their own.
 const joins = (entry, copy) =>
   entry.scryfall_id === copy.scryfallId &&
   entry.finish === copy.finish &&
   !entry.is_proxy &&
   !entry.in_deck_binder &&
+  !copy.isProxy &&
+  !copy.inDeckBinder &&
   (entry.set_code === null) === (copy.set === undefined);
 
-// The row changes that add copies ([{ name, scryfallId, set?, collectorNumber?, finish, quantity }]) to
-// a collection whose rows are entries: more copies on a matching row, or new rows at the end.
+// The row changes that add copies ([{ name, scryfallId, set?, collectorNumber?, finish, quantity,
+// isProxy?, inDeckBinder?, sourceRecord? }]) to a collection whose rows are entries: more copies on a
+// matching row, or new rows at the end.
 export function planAdd(entries, copies) {
   const updates = new Map();
   const inserts = [];
@@ -70,8 +98,9 @@ export function planAdd(entries, copies) {
         set_code: copy.set ?? null,
         collector_number: copy.collectorNumber ?? null,
         finish: copy.finish,
-        is_proxy: 0,
-        in_deck_binder: 0,
+        is_proxy: copy.isProxy ? 1 : 0,
+        in_deck_binder: copy.inDeckBinder ? 1 : 0,
+        source_record: copy.sourceRecord ?? null,
       });
       next += 1;
     }
@@ -115,7 +144,17 @@ const collectionGuard = (db, userId, collection, revision, at) =>
           `INSERT INTO collections (id, user_id, name, path, format, protected, created_at, updated_at, revision)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, name) DO NOTHING`,
         )
-        .bind(collection.id, userId, collection.name, collection.path, 'text', collection.protected, at, at, revision)
+        .bind(
+          collection.id,
+          userId,
+          collection.name,
+          collection.path,
+          collection.format,
+          collection.protected,
+          at,
+          at,
+          revision,
+        )
     : db
         .prepare(
           `UPDATE collections SET revision = ?, updated_at = ?
@@ -123,68 +162,63 @@ const collectionGuard = (db, userId, collection, revision, at) =>
         )
         .bind(revision, at, collection.id, userId, collection.revision ?? '');
 
+// Rows go to D1 as JSON arrays read with json_each, a chunk per statement, so an upload of thousands of
+// rows stays within D1's limits on bound parameters and queries per request.
+const CHUNK_ROWS = 500;
+const chunks = (items) =>
+  Array.from({ length: Math.ceil(items.length / CHUNK_ROWS) }, (_, at) =>
+    JSON.stringify(items.slice(at * CHUNK_ROWS, (at + 1) * CHUNK_ROWS)),
+  );
+const field = (name) => `json_extract(j.value, '$.${name}')`;
+
 // The statements for one collection's row changes and events, each applying only when applies holds.
 function rowStatements(db, userId, { collection, plan, events }, { applies, guard, revision, at, source, note }) {
+  const updates = [...plan.updates].map(([id, quantity]) => ({ id, quantity }));
   return [
-    ...[...plan.updates].map(([id, quantity]) =>
+    ...chunks(updates).map((json) =>
       db
-        .prepare(`UPDATE collection_entries SET quantity = ? WHERE id = ? AND user_id = ? AND ${applies}`)
-        .bind(quantity, id, userId, ...guard),
+        .prepare(
+          `UPDATE collection_entries
+           SET quantity = (SELECT ${field('quantity')} FROM json_each(?1) j WHERE ${field('id')} = collection_entries.id)
+           WHERE user_id = ?2 AND id IN (SELECT ${field('id')} FROM json_each(?1) j) AND ${applies}`,
+        )
+        .bind(json, userId, ...guard),
     ),
-    ...plan.deletes.map((id) =>
+    ...chunks(plan.deletes).map((json) =>
       db
-        .prepare(`DELETE FROM collection_entries WHERE id = ? AND user_id = ? AND ${applies}`)
-        .bind(id, userId, ...guard),
+        .prepare(
+          `DELETE FROM collection_entries WHERE user_id = ?2 AND id IN (SELECT value FROM json_each(?1)) AND ${applies}`,
+        )
+        .bind(json, userId, ...guard),
     ),
-    ...plan.inserts.map((row) =>
+    ...chunks(plan.inserts).map((json) =>
       db
         .prepare(
           `INSERT INTO collection_entries (user_id, collection_id, position, name, quantity, scryfall_id, set_code,
              collector_number, finish, is_proxy, in_deck_binder, source_record)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL WHERE ${applies}`,
+           SELECT ?2, ?3, ${['position', 'name', 'quantity', 'scryfall_id', 'set_code', 'collector_number', 'finish', 'is_proxy', 'in_deck_binder', 'source_record'].map(field).join(', ')}
+           FROM json_each(?1) j WHERE ${applies}`,
         )
-        .bind(
-          userId,
-          collection.id,
-          row.position,
-          row.name,
-          row.quantity,
-          row.scryfall_id,
-          row.set_code,
-          row.collector_number,
-          row.finish,
-          row.is_proxy,
-          row.in_deck_binder,
-          ...guard,
-        ),
+        .bind(json, userId, collection.id, ...guard),
     ),
-    ...events.map((event) =>
+    ...chunks(
+      events.map((event) => ({ ...event, scryfallId: event.scryfallId ?? null, finish: event.finish ?? null })),
+    ).map((json) =>
       db
         .prepare(
           `INSERT INTO collection_events (user_id, batch_id, at, source, collection_name, name, scryfall_id, finish,
              change, note)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE ${applies}`,
+           SELECT ?2, ?3, ?4, ?5, ?6, ${['name', 'scryfallId', 'finish', 'change'].map(field).join(', ')}, ?7
+           FROM json_each(?1) j WHERE ${applies}`,
         )
-        .bind(
-          userId,
-          revision,
-          at,
-          source,
-          collection.name,
-          event.name,
-          event.scryfallId ?? null,
-          event.finish ?? null,
-          event.change,
-          note,
-          ...guard,
-        ),
+        .bind(json, userId, revision, at, source, collection.name, note, ...guard),
     ),
   ];
 }
 
-// Writes planned changes as one batch. changes is [{ collection, plan, events, remove? }], where events
-// are [{ name, scryfallId, finish, change }] and remove deletes the collection once its rows are gone (a
-// torn-down deck's own list). deck, when given ({ slug, updatedAt, doc }), is saved in the same batch.
+// Writes planned changes as one batch. changes is [{ collection, plan, events, remove?, format? }], where
+// events are [{ name, scryfallId, finish, change }], remove deletes the collection once its rows are gone
+// (a torn-down deck's own list), and format changes an existing collection's (an upload replacing it). deck, when given ({ slug, updatedAt, doc }), is saved in the same batch.
 // Returns false, writing nothing, when any collection or the deck changed since it was read (or a new
 // collection's name was taken meanwhile).
 export async function applyCollectionChanges(db, userId, changes, { source, note = null, now, deck }) {
@@ -205,6 +239,13 @@ export async function applyCollectionChanges(db, userId, changes, { source, note
   const guard = [userId, revision, userId, revision, guards.length];
   const context = { applies, guard, revision, at, source, note };
   const statements = changes.flatMap((change) => rowStatements(db, userId, change, context));
+  for (const { collection, format } of changes.filter((change) => change.format && !change.collection.isNew)) {
+    statements.push(
+      db
+        .prepare(`UPDATE collections SET format = ? WHERE id = ? AND user_id = ? AND ${applies}`)
+        .bind(format, collection.id, userId, ...guard),
+    );
+  }
   if (deck) {
     // A save in the same millisecond as the last must still change updated_at.
     const savedAt = new Date(Math.max(now, Date.parse(deck.updatedAt) + 1)).toISOString();

@@ -11,7 +11,7 @@ beforeEach(async () => {
     await Promise.all(page.keys.map((key) => env.OAUTH_KV.delete(key.name)));
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
-  await env.DB.batch([env.DB.prepare('DELETE FROM auth_events'), env.DB.prepare('DELETE FROM users')]);
+  await env.DB.batch(['auth_events', 'users', 'uploads'].map((table) => env.DB.prepare(`DELETE FROM ${table}`)));
 });
 
 afterEach(() => vi.restoreAllMocks());

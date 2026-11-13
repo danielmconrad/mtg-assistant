@@ -34,11 +34,11 @@ const note = z.string().min(1).max(500).optional().describe('Why, for the change
 const copiesOf = (count) => `${count} ${count === 1 ? 'copy' : 'copies'}`;
 
 // The text list's rows, each matched to a printing (a line with SET NUMBER) or a card (a name alone).
-// Lines that match nothing are refused, with suggestions.
-async function resolvedRows(db, text) {
+// Lines that match nothing are refused, with suggestions. The upload page reads text files with it too.
+export async function resolvedRows(db, text, source = 'cards') {
   let rows;
   try {
-    rows = parseTextCollection(text, 'cards');
+    rows = parseTextCollection(text, source);
   } catch (error) {
     throw new ToolError(error.message);
   }
@@ -69,8 +69,8 @@ async function resolvedRows(db, text) {
 }
 
 // The collection to change. A deck's own list (collection_destination) changes only with its deck, through
-// the physical-deck tools.
-async function targetCollection(db, userId, name, { create, now }) {
+// the physical-deck tools. A new one is a text list unless format says otherwise (an uploaded CSV).
+export async function targetCollection(db, userId, name, { create, now, format }) {
   const collections = await listCollections(db, userId);
   const existing = collections.find((collection) => collection.name === name);
   const decks = await loadAllDecks(db, userId);
@@ -90,7 +90,7 @@ async function targetCollection(db, userId, name, { create, now }) {
       `${name} can't be a collection name: use folders and names of letters, digits, spaces, dots, underscores and hyphens`,
     );
   }
-  return { collection: newTextCollection(name, now), decks };
+  return { collection: newTextCollection(name, now, format), decks };
 }
 
 async function saved(db, userId, change, context) {

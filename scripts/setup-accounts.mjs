@@ -4,7 +4,7 @@
 //   mise run setup:accounts              # show the plan; changes nothing
 //   mise run setup:accounts -- --apply   # make the changes
 //
-// Cloudflare: the D1 database and KV namespace (IDs written into wrangler.jsonc), the Access login in
+// Cloudflare: the D1 database and KV namespace (IDs written into wrangler.jsonc), the private R2 bucket, the Access login in
 // front of the browser routes, the zone's HTTPS settings, a WAF rule that blocks every path the Worker
 // doesn't serve, a coarse edge rate limit, and the Worker's secrets.
 // GitHub: Actions variables and secrets for deploys, the production environment, the main-branch
@@ -18,6 +18,7 @@ import { applyEdits, modify, parse } from 'jsonc-parser';
 const WORKER = 'mtg-assistant';
 const D1_NAME = 'mtg-assistant';
 const KV_TITLE = 'mtg-assistant-oauth';
+const R2_BUCKET = 'mtg-assistant-uploads';
 const ACCESS_APP = 'mtg-assistant browser routes';
 const ACCESS_POLICY = 'mtg-assistant allowlist';
 const RULE_PREFIX = 'mtg-assistant-';
@@ -31,6 +32,7 @@ export const PUBLIC_PATHS = [
   '/authorize',
   '/callback',
   '/download',
+  '/upload',
   '/mcp',
 ];
 // Cloudflare Access serves its own endpoints on our hostname (the redirect that completes a sign-in is
@@ -38,10 +40,10 @@ export const PUBLIC_PATHS = [
 // first, so they must be let through. Nothing else under /cdn-cgi/ is.
 export const ACCESS_EDGE_PREFIX = '/cdn-cgi/access/';
 // Paths only a person in a browser opens; Cloudflare Access guards them.
-export const ACCESS_PATHS = ['/authorize', '/callback', '/download'];
+export const ACCESS_PATHS = ['/authorize', '/callback', '/download', '/upload'];
 const CHECK_CONTEXTS = ['lint', 'test', 'scan'];
 // Worker secrets setup:accounts makes itself (32 random bytes each) rather than reading from .env.
-export const GENERATED_SECRETS = ['DOWNLOAD_SIGNING_KEY'];
+export const GENERATED_SECRETS = ['DOWNLOAD_SIGNING_KEY', 'UPLOAD_SIGNING_KEY'];
 export const randomKey = () => randomBytes(32).toString('base64');
 
 const apply = process.argv.includes('--apply');
@@ -257,6 +259,31 @@ async function ensureKv(account) {
     cf('POST', `/accounts/${account}/storage/kv/namespaces`, { title: KV_TITLE }),
   );
   return created?.id;
+}
+
+// The bucket for uploaded files, kept private: its r2.dev URL off and no custom domains.
+async function ensureR2(account) {
+  const { buckets = [] } = await cf('GET', `/accounts/${account}/r2/buckets?name_contains=${R2_BUCKET}`);
+  if (buckets.some((bucket) => bucket.name === R2_BUCKET)) ok(`R2 bucket ${R2_BUCKET} exists`);
+  else {
+    await change(`create R2 bucket ${R2_BUCKET}`, () =>
+      cf('POST', `/accounts/${account}/r2/buckets`, { name: R2_BUCKET }),
+    );
+    if (!apply) return false;
+  }
+  const managed = await cf('GET', `/accounts/${account}/r2/buckets/${R2_BUCKET}/domains/managed`);
+  if (managed.enabled) {
+    await change(`turn off the r2.dev URL of ${R2_BUCKET}`, () =>
+      cf('PUT', `/accounts/${account}/r2/buckets/${R2_BUCKET}/domains/managed`, { enabled: false }),
+    );
+  } else ok(`R2 bucket ${R2_BUCKET} has no r2.dev URL`);
+  const { domains = [] } = await cf('GET', `/accounts/${account}/r2/buckets/${R2_BUCKET}/domains/custom`);
+  if (domains.length) {
+    warn(
+      `R2 bucket ${R2_BUCKET} has custom domains (${domains.map((domain) => domain.domain).join(', ')}); remove them, since it must stay private`,
+    );
+  }
+  return true;
 }
 
 async function ensureIdentityProvider(account, env) {
@@ -559,6 +586,7 @@ async function setupCloudflare(env) {
   const zone = await findZone(env);
   const d1Id = await ensureD1(account);
   const kvId = await ensureKv(account);
+  const r2Ready = await ensureR2(account);
   const { auth_domain: teamDomain } = await cf('GET', `/accounts/${account}/access/organizations`);
   if (env.CLOUDFLARE_ACCESS_TEAM_DOMAIN && env.CLOUDFLARE_ACCESS_TEAM_DOMAIN !== teamDomain) {
     warn(`CLOUDFLARE_ACCESS_TEAM_DOMAIN is ${env.CLOUDFLARE_ACCESS_TEAM_DOMAIN}, but the account's is ${teamDomain}`);
@@ -579,7 +607,7 @@ async function setupCloudflare(env) {
     );
   }
   await ensureWorkerSecrets(account, env);
-  return { ready: Boolean(d1Id && kvId) };
+  return { ready: Boolean(d1Id && kvId && r2Ready) };
 }
 
 async function setupGithub(env, { ready }) {

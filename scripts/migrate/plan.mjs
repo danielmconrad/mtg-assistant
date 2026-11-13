@@ -1,25 +1,13 @@
 // The pure half of scripts/migrate-from-mtg-manager.mjs: rewriting deck patterns, the SQL for a
 // migration, and checking what the server reads back. No Node built-ins, so the workerd tests can run a
 // full migrate-and-read-back round trip against D1.
-import { parse } from 'csv-parse/sync';
 import { loadCollections } from '../../src/storage/collections.mjs';
 import { loadAllDecks } from '../../src/storage/decks.mjs';
 import { insertStatements, literal } from '../ingest/sql.mjs';
 
-// The ManaBox columns parseCollection already turns into row fields; the rest are kept as JSON.
-const PARSED_COLUMNS = new Set([
-  'Name',
-  'Quantity',
-  'Scryfall ID',
-  'Set code',
-  'Collector number',
-  'Foil',
-  'Proxy',
-  'Binder Type',
-]);
-
 // Shared with collections the server creates, so both are protected by the same rule.
 export { isProtectedPath } from '../../src/storage/collections.mjs';
+export { sourceRecords } from '../../src/storage/collection-writes.mjs';
 
 // A collection path or pattern from deck.yaml, without the owner's folder. On the server each person
 // has their own collections/ tree, so collections/brad/**/* becomes collections/**/*, matched against
@@ -55,14 +43,6 @@ export function relativeDeck(deck, owner, slug) {
     if (pattern) converted.collection_destination = pattern;
   }
   return { deck: converted, problems };
-}
-
-// ManaBox's other columns for each CSV row, by position, so exports can give them back.
-export function sourceRecords(text) {
-  const records = parse(text, { bom: true, skip_empty_lines: true, columns: true });
-  return records.map((record) =>
-    JSON.stringify(Object.fromEntries(Object.entries(record).filter(([column]) => !PARSED_COLUMNS.has(column)))),
-  );
 }
 
 // Replaces each ? outside a quoted string with the next value as a literal.
