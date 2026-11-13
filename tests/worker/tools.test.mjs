@@ -396,6 +396,8 @@ const ISOLATION = {
     (text) => expect(text).toMatch(/No deck named bears/),
   ],
   get_upload_link: [{}, (text) => expect(text).toMatch(/^Upload page:\nhttps:\/\/\S+\/upload\?token=/)],
+  // With nothing owned, the top of the ranking is empty, so nothing is fetched.
+  refresh_edhrec: [{ top: 1 }, (text) => expect(text).toMatch(/^EDHREC pages for 0 commanders/)],
   get_workflow: [{ name: 'collection-survey' }, (text) => expect(text).toMatch(/^# Surveying the collection/)],
 };
 

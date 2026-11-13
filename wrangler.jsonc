@@ -49,5 +49,7 @@
     { "name": "RL_MCP", "namespace_id": "1004", "simple": { "limit": 120, "period": 60 } },
     { "name": "RL_DOWNLOAD", "namespace_id": "1005", "simple": { "limit": 10, "period": 60 } },
     { "name": "RL_UPLOAD", "namespace_id": "1006", "simple": { "limit": 10, "period": 60 } },
+    // EDHREC asks for about one request a second: shared by everyone, not per IP.
+    { "name": "RL_EDHREC", "namespace_id": "1007", "simple": { "limit": 10, "period": 10 } },
   ],
 }
