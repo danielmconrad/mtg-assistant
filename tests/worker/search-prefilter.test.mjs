@@ -137,25 +137,28 @@ describe('searchPrefilter', () => {
     ({ index } = await cardIndexFor(env.DB, await loadMatchingRows(env.DB, { sql: '1 = 1' })));
   });
 
-  it('keeps every card mtg-manager’s search finds, for every combination', async () => {
-    let checked = 0;
+  // 1,152 queries, sent 100 at a time; CI's coverage run is several times slower than a local one.
+  it('keeps every card mtg-manager’s search finds, for every combination', { timeout: 60_000 }, async () => {
+    const combos = combinations();
+    const kept = [];
+    for (let start = 0; start < combos.length; start += 100) {
+      const statements = combos.slice(start, start + 100).map((args) => {
+        const filter = searchPrefilter(args);
+        return env.DB.prepare(`SELECT name FROM cards c WHERE ${filter.sql}`).bind(...filter.params);
+      });
+      for (const { results } of await env.DB.batch(statements)) kept.push(new Set(results.map((row) => row.name)));
+    }
     let narrowed = 0;
-    for (const args of combinations()) {
+    for (const [position, args] of combos.entries()) {
       const expected = searchCollection(NO_COLLECTIONS, index, searchFilters(asOptions(args), index)).results.map(
         ({ card }) => card.name,
       );
-      const filter = searchPrefilter(args);
-      const { results } = await env.DB.prepare(`SELECT name FROM cards c WHERE ${filter.sql}`)
-        .bind(...filter.params)
-        .all();
-      const kept = new Set(results.map((row) => row.name));
-      const missing = expected.filter((name) => !kept.has(name));
+      const missing = expected.filter((name) => !kept[position].has(name));
       expect(missing, JSON.stringify(args)).toEqual([]);
-      checked += 1;
-      if (kept.size < CARDS.length) narrowed += 1;
+      if (kept[position].size < CARDS.length) narrowed += 1;
     }
-    expect(checked).toBe(5 * 3 * 4 * 4 * 8 * 3);
+    expect(combos).toHaveLength(5 * 3 * 4 * 4 * 8 * 3);
     // It does narrow, too: most combinations leave cards out.
-    expect(narrowed / checked).toBeGreaterThan(0.9);
+    expect(narrowed / combos.length).toBeGreaterThan(0.9);
   });
 });
