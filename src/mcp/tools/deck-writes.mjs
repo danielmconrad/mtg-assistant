@@ -319,7 +319,7 @@ async function applyOperations(db, deck, ops, now) {
   return updated;
 }
 
-const createSchema = z
+export const createSchema = z
   .object({
     slug: slug.describe('A new slug: lowercase words joined by hyphens, e.g. kwia-lotus-engine'),
     name: z.string().min(1).max(200).optional().describe('Titled from the slug when left out'),
@@ -344,7 +344,8 @@ const createSchema = z
   })
   .strict();
 
-async function createDeck(args, { db, user, now }) {
+// Creates the deck and returns the reply's lines. import_deck creates decks through it too.
+export async function createDeckLines(args, { db, user, now }) {
   checkGlobs(args.collection_source ?? []);
   const names = await canonicalNames(db, [...args.commanders, ...args.mainboard.map((entry) => entry.name)]);
   let deck;
@@ -372,8 +373,10 @@ async function createDeck(args, { db, user, now }) {
   if (!(await insertDeck(db, user.id, args.slug, deck, now))) {
     throw new ToolError(`A deck named ${args.slug} already exists; update_deck changes it`);
   }
-  return textResult([`Created ${args.slug} (${deck.format}, draft). ${sizeLine(deck)}`, ...notes]);
+  return [`Created ${args.slug} (${deck.format}, draft). ${sizeLine(deck)}`, ...notes];
 }
+
+const createDeck = async (args, ctx) => textResult(await createDeckLines(args, ctx));
 
 const updateSchema = z
   .object({
