@@ -25,8 +25,11 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
 - **`search_cards`** (`collection:search`): searches the person's collection by default. It can also search
   cards they don't own (`scope: unowned`) or every card (`scope: all`), using the same filters, `count` and
   `group_by`. Unowned and all-cards searches are narrowed in SQL first, by a filter that may only keep more
-  cards than the search would, never fewer. A test checks that on 1,152 filter combinations. Mtg-manager's own
-  filters then decide, and a search that would still load over 4,000 cards asks for narrower filters.
+  cards than the search would, never fewer. It reads plain text out of the name, type and text regexes,
+  one piece per alternative, so `fight|deals damage` narrows to cards containing either. A test checks
+  that on 1,728 filter combinations. Mtg-manager's own filters then decide. If SQL leaves over 4,000
+  cards, the regexes run on pages of cards and only the matches are loaded. A search that still matches
+  over 4,000 cards asks for narrower filters.
 - **`get_cards`** (`card:show`): shows any card by name, owned or not. Misspellings get suggestions from every
   card's name.
 - **`collection_summary`** (`collection:check`): the collection's totals and each binder (deck binders and
