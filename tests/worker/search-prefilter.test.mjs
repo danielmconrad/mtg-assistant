@@ -1,10 +1,11 @@
 // The SQL prefilter must never drop a card mtg-manager's search would keep: across many filter
-// combinations, every card searchCollection finds among all cards is in the prefilter's result.
+// combinations, every card searchCollection finds among all cards is in the prefilter's result. Also the
+// plain text it reads out of regexes, and the paged scan broad searches fall back on.
 import { env } from 'cloudflare:test';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { searchCollection, searchFilters } from '../../src/core/search.mjs';
-import { cardIndexFor, loadMatchingRows } from '../../src/storage/cards.mjs';
-import { searchPrefilter } from '../../src/storage/search-sql.mjs';
+import { cardIndexFor, loadMatchingRows, loadOracleIdRows, scanOracleIds } from '../../src/storage/cards.mjs';
+import { regexLiterals, searchPrefilter } from '../../src/storage/search-sql.mjs';
 import { scryfallCard } from '../fixtures/scryfall.mjs';
 import { clearCardTables, ingest } from './ingest-helper.mjs';
 
@@ -97,6 +98,10 @@ const FILTER_CHOICES = {
     { text: ['graveyard'] },
     { text: ['ADD \\{C\\}'] },
     { text: ['flying'] },
+    { text: ['(graveyard|flying)'] },
+    { text: ['add \\{c\\}|charge counters?'] },
+    { name: 'lim-d.l|vials?' },
+    { type: ['(?:wizards?|background)$'] },
   ],
   printing: [{}, { set: ['ZNR'] }, { rarity: ['mythic', 'rare'] }],
 };
@@ -157,8 +162,86 @@ describe('searchPrefilter', () => {
       expect(missing, JSON.stringify(args)).toEqual([]);
       if (kept[position].size < CARDS.length) narrowed += 1;
     }
-    expect(combos).toHaveLength(5 * 3 * 4 * 4 * 8 * 3);
+    expect(combos).toHaveLength(5 * 3 * 4 * 4 * 12 * 3);
     // It does narrow, too: most combinations leave cards out.
     expect(narrowed / combos.length).toBeGreaterThan(0.9);
+  });
+});
+
+describe('regexLiterals', () => {
+  it.each([
+    ['fight', ['fight']],
+    ['(fight|deals damage equal to its power)', ['fight', 'deals damage equal to its power']],
+    ['(?:draw|investigate)', ['draw', 'investigate']],
+    ['create.*token', ['create']],
+    ['add \\{C\\}', ['add {C}']],
+    ['add {C}', ['add {C}']],
+    ['deals \\d+ damage', [' damage']],
+    ['creatures? you control', [' you control']],
+    ['colou?r', ['colo']],
+    ['ab+c', ['ab']],
+    ['x{2,}y', ['xy']],
+    ['sacrifice (a|another) creature', ['sacrifice ']],
+    ['[abc]def', ['def']],
+    ['\\bdraw\\b', ['draw']],
+    ['Æther', ['ther']],
+    ['food|treasure|clue', ['food', 'treasure', 'clue']],
+  ])('reads %s as %j', (source, expected) => {
+    expect(regexLiterals(source)).toEqual(expected);
+  });
+
+  it.each(['x|\\d+', 'Æ', '(?<n>foo)', '(?=foo)', '.*', 'a?', '(a|b)c?'])('gives up on %s', (source) => {
+    expect(regexLiterals(source)).toBeNull();
+  });
+
+  // Every match contains one of the texts, case aside.
+  it('reads only text every match contains', () => {
+    const samples = [
+      'Deals 3 damage to any target.',
+      'Creature you control fights another',
+      'add {C}{C}',
+      'abbbc colour color',
+      'Æther Vial; draw a card',
+      'Create a Food token. Sacrifice another creature.',
+    ];
+    const patterns = [
+      'deals \\d+ damage',
+      'creatures? you control',
+      'add \\{c\\}',
+      'ab+c',
+      'colou?r',
+      'æther|draw',
+      'create.*token',
+      'sacrifice (a|another) creature',
+      'x{0,2}food',
+    ];
+    for (const source of patterns) {
+      const texts = regexLiterals(source);
+      for (const sample of samples.filter((candidate) => new RegExp(source, 'i').test(candidate))) {
+        expect(
+          texts.some((text) => sample.toLowerCase().includes(text.toLowerCase())),
+          `${source} on ${sample}`,
+        ).toBe(true);
+      }
+    }
+  });
+});
+
+describe('scanOracleIds', () => {
+  const all = { sql: '1 = 1', params: [] };
+  const flying = (row) => /flying/i.test(row.oracle_text);
+
+  it('keeps the cards that pass, across pages', async () => {
+    const ids = await scanOracleIds(env.DB, all, flying, { pageSize: 2 });
+    const rows = await loadOracleIdRows(env.DB, ids);
+    expect(new Set(rows.map((row) => row.name))).toEqual(
+      new Set(['Delver of Secrets // Insectile Aberration', "Emeria's Call // Emeria, Shattered Skyclave"]),
+    );
+  });
+
+  it('applies the SQL filter too, and stops once more than limit match', async () => {
+    const green = { sql: '(c.color_identity & ~?) = 0', params: [16] };
+    expect(await scanOracleIds(env.DB, green, flying, { pageSize: 2 })).toEqual([]);
+    expect(await scanOracleIds(env.DB, all, () => true, { pageSize: 2, limit: 3 })).toHaveLength(4);
   });
 });

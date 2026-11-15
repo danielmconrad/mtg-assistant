@@ -195,6 +195,29 @@ export async function loadCardRows(
 // { sql: 'c.legal_commander = 1 AND (c.color_identity & ~?) = 0', params: [24] }.
 export const loadMatchingRows = (db, { sql, params = [] }) => rowsWhere(db, sql, params);
 
+// Every printing of the given cards by oracle ID, in two statements however many there are.
+export const loadOracleIdRows = (db, oracleIds) =>
+  rowsWhere(db, 'c.oracle_id IN (SELECT value FROM json_each(?))', [JSON.stringify(oracleIds)]);
+
+// The oracle IDs of cards matching a filter on cards (alias c) whose { name, type_line, oracle_text }
+// pass test, read a page at a time so only the matches are held. Stops once more than limit match.
+export async function scanOracleIds(db, { sql, params = [] }, test, { limit = Infinity, pageSize = 5000 } = {}) {
+  const found = [];
+  let after = '';
+  for (;;) {
+    const { results } = await db
+      .prepare(
+        `SELECT c.oracle_id, c.name, c.type_line, c.oracle_text FROM cards c
+         WHERE ${sql} AND c.oracle_id > ? ORDER BY c.oracle_id LIMIT ?`,
+      )
+      .bind(...params, after, pageSize)
+      .all();
+    found.push(...results.filter(test).map((row) => row.oracle_id));
+    if (found.length > limit || results.length < pageSize) return found;
+    after = results.at(-1).oracle_id;
+  }
+}
+
 // Owned cards' oracle IDs, for a user bound as the first parameter.
 const OWNED_ORACLE_IDS = `SELECT DISTINCT op.oracle_id FROM collection_entries oe JOIN printings op ON op.id = oe.scryfall_id
   WHERE oe.user_id = ?`;

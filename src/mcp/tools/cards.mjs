@@ -7,6 +7,7 @@ import {
   GROUP_BY_CHOICES,
   RARITY_CHOICES,
   ROLE_CHOICES,
+  ROLE_PATTERNS,
   SORT_CHOICES,
   countResults,
   groupResults,
@@ -14,13 +15,21 @@ import {
   searchFilters,
   sortResults,
 } from '../../core/search.mjs';
-import { loadMatchingRows, nameSuggester, printingCounts } from '../../storage/cards.mjs';
+import {
+  loadMatchingRows,
+  loadOracleIdRows,
+  nameSuggester,
+  printingCounts,
+  scanOracleIds,
+} from '../../storage/cards.mjs';
 import { loadCollections } from '../../storage/collections.mjs';
 import { loadAllDecks } from '../../storage/decks.mjs';
 import { searchPrefilter } from '../../storage/search-sql.mjs';
 import { ToolError, checkPattern, personalIndex, staleDataWarning, textResult } from './shared.mjs';
 
 // A search of unowned or all cards loads its candidates into memory, so very broad ones are refused.
+// Past this many, a search with regexes SQL can't apply runs them on pages of cards instead, and is
+// refused only if more than this many still match.
 export const MAX_CANDIDATES = 4000;
 const DEFAULT_LIMIT = 50;
 const FORMATS = [
@@ -137,7 +146,24 @@ async function commanderMask(db, name) {
   return results.length === 1 ? results[0].color_identity : undefined;
 }
 
-// Candidates beyond the person's own cards, narrowed in SQL first.
+// The search's name, type, text and role tests on a card's columns, as searchCollection runs them; null
+// when it has none.
+function regexTest(args) {
+  const on = (column, regex) => (row) => regex.test(row[column]);
+  const regex = (source) => new RegExp(source, 'i');
+  const tests = [
+    ...(args.name === undefined ? [] : [on('name', regex(args.name))]),
+    ...(args.type ?? []).map((source) => on('type_line', regex(source))),
+    ...(args.text ?? []).map((source) => on('oracle_text', regex(source))),
+    ...(args.role ?? []).map((role) => on('oracle_text', ROLE_PATTERNS[role])),
+  ];
+  return tests.length ? (row) => tests.every((test) => test(row)) : null;
+}
+
+const NARROW = 'narrow it with identity, a commander, type, text, set, legal or mana value';
+
+// Candidates beyond the person's own cards, narrowed in SQL first, then by the regexes if that leaves
+// too many to load.
 async function candidateRows(db, args) {
   const mask = args.commander ? await commanderMask(db, args.commander) : undefined;
   const filter = searchPrefilter(args, { identityMask: mask });
@@ -145,12 +171,14 @@ async function candidateRows(db, args) {
     .prepare(`SELECT COUNT(*) AS n FROM cards c WHERE ${filter.sql}`)
     .bind(...filter.params)
     .first();
-  if (n > MAX_CANDIDATES) {
-    throw new ToolError(
-      `That ${args.scope} search matches ${n} cards before the regex filters, over ${MAX_CANDIDATES}; narrow it with identity, type, text, set, legal or mana value`,
-    );
+  if (n <= MAX_CANDIDATES) return loadMatchingRows(db, filter);
+  const test = regexTest(args);
+  if (!test) throw new ToolError(`That ${args.scope} search matches ${n} cards, over ${MAX_CANDIDATES}; ${NARROW}`);
+  const oracleIds = await scanOracleIds(db, filter, test, { limit: MAX_CANDIDATES });
+  if (oracleIds.length > MAX_CANDIDATES) {
+    throw new ToolError(`That ${args.scope} search matches over ${MAX_CANDIDATES} cards; ${NARROW}`);
   }
-  return loadMatchingRows(db, filter);
+  return loadOracleIdRows(db, oracleIds);
 }
 
 function checkSearchArgs(args) {
