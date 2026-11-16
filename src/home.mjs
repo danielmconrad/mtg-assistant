@@ -24,6 +24,7 @@ const GROUPS = [
       'show_deck',
       'deck_stats',
       'check_deck',
+      'find_combos',
       'verify_deck',
       'deck_candidates',
       'deck_upgrades',

@@ -53,5 +53,7 @@
     { "name": "RL_EDHREC", "namespace_id": "1007", "simple": { "limit": 10, "period": 10 } },
     // import_deck's Archidekt fetches, per person.
     { "name": "RL_IMPORT", "namespace_id": "1008", "simple": { "limit": 10, "period": 60 } },
+    // find_combos' Commander Spellbook requests, per person.
+    { "name": "RL_COMBOS", "namespace_id": "1009", "simple": { "limit": 10, "period": 60 } },
   ],
 }

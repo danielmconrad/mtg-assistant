@@ -1,6 +1,7 @@
 // Every MCP tool, in the order Claude sees them. tests/worker/tools-isolation.test.mjs requires a
 // cross-tenant test for each one.
 import { CARD_TOOLS } from './cards.mjs';
+import { COMBO_TOOLS } from './combos.mjs';
 import { COLLECTION_WRITE_TOOLS } from './collection-writes.mjs';
 import { COLLECTION_TOOLS } from './collections.mjs';
 import { COMMANDER_TOOLS } from './commanders.mjs';
@@ -18,6 +19,7 @@ export const TOOLS = [
   ...COLLECTION_WRITE_TOOLS,
   ...COMMANDER_TOOLS,
   ...DECK_TOOLS,
+  ...COMBO_TOOLS,
   ...DECK_WRITE_TOOLS,
   ...DOWNLOAD_TOOLS,
   ...IMPORT_TOOLS,

@@ -49,8 +49,14 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   `rank_commanders`, at most 10 a call and one a second (`RL_EDHREC` spaces them across every caller). Pages are
   shared, kept in D1's `edhrec_pages` for 30 days, and `rank_commanders` then shows how much of each the person
   owns. EDHREC's JSON is undocumented, so an unexpected shape stops the refresh and caches nothing.
-  - **Outbound requests** go through `src/outbound.mjs`: HTTPS to `json.edhrec.com` and `archidekt.com` only,
-    each redirect checked against the same list, and responses capped at 4 MB. No tool fetches an arbitrary URL.
+  - **Outbound requests** go through `src/outbound.mjs`: HTTPS to `json.edhrec.com`, `archidekt.com` and
+    `backend.commanderspellbook.com` only, each redirect checked against the same list, and responses capped at
+    4 MB. No tool fetches an arbitrary URL.
+- **`find_combos`**: the combos [Commander Spellbook](https://commanderspellbook.com) knows among a deck's cards,
+  a list of cards, or a deck plus cards (such as planned adds), and those one card away, sorted so the ones whose missing card the person has free (then
+  protected) come first. Each shows what it produces, its colors, Commander Spellbook's bracket tag and a link;
+  `steps: true` adds how it works. Only card names are sent, at most 10 requests a minute per person
+  (`RL_COMBOS`), and an answer in an unexpected shape is refused.
 - **`list_decks`**, **`show_deck`**, **`deck_stats`**, **`check_deck`** and **`export_deck`** (`deck:show`,
   `deck:stats`, `deck:check`, `deck:export`): the person's decks. `export_deck` also has a `manabox` format
   (Arena's layout, which ManaBox's deck import reads).

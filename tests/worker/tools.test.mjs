@@ -428,6 +428,7 @@ const ISOLATION = {
   verify_deck: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
   deck_candidates: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
   deck_upgrades: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
+  find_combos: [{ slug: 'bears' }, (text) => expect(text).toMatch(/No deck named bears/)],
   // A second person's draft_deck makes their own deck (deck-writes.test.mjs checks the owner's is untouched).
   draft_deck: [
     { slug: 'mine', commanders: ['Ayula, Queen Among Bears'] },

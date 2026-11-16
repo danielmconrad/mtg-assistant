@@ -52,7 +52,7 @@ Draft the deck with draft_deck: slug, commanders (two for partners), format, tar
 - Primer: how the deck wins, in one or two sentences (deckbuilding-strategy section 1).
 - Engine map, in notes (update_deck set notes): what the commander and key engine cards use up and produce (life-gain events, Food, Treasure, any token, counters, spells cast, cards drawn), and which owned cards turn one into another (section 1a).
 - role_targets: Commander decks are compared with the Command Zone template by default. Set targets when the plan departs from it (say, two wipes in a go-wide deck), and always for Custom Dollar Brawl and casual-60 (sections 3 and 5).
-- power_notes: the bracket's limits that no tool checks (two-card combos, chained extra turns), and how the deck stays inside them.
+- power_notes: the bracket's limits check_deck doesn't check (two-card combos, which find_combos lists, and chained extra turns), and how the deck stays inside them.
 
 ## 4. Build a shortlist
 
