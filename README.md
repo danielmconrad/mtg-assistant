@@ -176,20 +176,41 @@ Your browser ──▶ Cloudflare Access (Google) ──▶ Worker /authorize, /
 Everything runs through [mise](https://mise.jdx.dev); nothing else is installed globally.
 
 ```sh
-mise trust && mise install        # node, gh, wrangler and the scanners, at pinned versions
+mise trust && mise install        # node, gh, wrangler, OpenTofu and the scanners, at pinned versions
 mise run setup                    # npm ci and the pre-commit hook (gitleaks, eslint, prettier)
 cp .env.example .env              # then follow the instructions inside to fill it in
-mise run setup:accounts           # shows what it would create or change in Cloudflare and GitHub
-mise run setup:accounts -- --apply
+mise run infra:bootstrap          # once: the private R2 bucket for OpenTofu's encrypted state
+mise run setup:secrets -- --apply # the Access Google login first, since infra/ puts it in front of Access
+mise run infra:apply              # shows OpenTofu's plan, and applies it once you confirm
+mise run infra:sync-wrangler      # writes the new resource IDs into wrangler.jsonc
 ```
 
 Then:
 
-1. Commit the `wrangler.jsonc` changes `setup:accounts` made (resource IDs, Access settings) and merge to `main`.
-   CI deploys once lint, tests and scans pass.
-2. Run `mise run setup:accounts -- --apply` again. Worker secrets can only be set once the Worker exists.
+1. Commit the `wrangler.jsonc` changes and merge to `main`. CI deploys once lint, tests and scans pass.
+2. Run `mise run setup:secrets -- --apply` again. Worker secrets can only be set once the Worker exists.
 3. In Claude (Settings → Connectors → Add custom connector), add `https://mtg-assistant.conrad.tools/mcp`, sign
    in, and ask Claude to run `whoami`.
+
+### Infrastructure
+
+[OpenTofu](https://opentofu.org) manages the Cloudflare and GitHub configuration in `infra/`: the D1
+database, KV namespace and private R2 bucket, the Access policy and application, the zone's HTTPS settings,
+the WAF and edge rate-limit rulesets, and GitHub's production environment, main-branch ruleset and Actions
+variables. `infra/routes.json` lists the paths the WAF lets through and the ones Access guards.
+
+- **State** is in the private R2 bucket `mtg-assistant-tfstate`, encrypted on the laptop with
+  `TOFU_STATE_PASSPHRASE` before it's uploaded, so Cloudflare only ever holds ciphertext. Plans are encrypted
+  the same way.
+- **Secrets stay out of state.** `scripts/setup-secrets.mjs` (`mise run setup:secrets`) sets the Worker's
+  secrets, the Actions secrets and the Access Google login, which holds a client secret. It also turns on
+  Dependabot and secret scanning, which OpenTofu could only manage by taking over every repository setting.
+- **Only from a laptop.** `infra:plan` and `infra:apply` use the admin token in `.env`, which never leaves the
+  machine. CI runs `infra:check` instead: `tofu fmt`, `validate`, and `tofu test` against mocked providers
+  (`infra/tests/`), with no credentials.
+- **Adopting what exists.** Resources made before OpenTofu managed them are imported on the first apply:
+  `mise run infra:adopt` looks up their IDs (only reading) and writes `infra/adopt.auto.tfvars.json`, which
+  `infra/imports.tf` reads. Check that the next `infra:plan` imports them and changes little else.
 
 ## Local development
 
@@ -209,10 +230,13 @@ it.
 | Task                        | What it does                                                                   |
 | --------------------------- | ------------------------------------------------------------------------------ |
 | `mise run test`             | Unit, integration and security tests: workerd for the Worker, Node for scripts |
-| `mise run lint` / `fix`     | ESLint, Prettier, actionlint and zizmor                                        |
+| `mise run lint` / `fix`     | ESLint, Prettier, actionlint, zizmor and `infra:check`                         |
 | `mise run scan`             | npm audit and signatures, OSV-Scanner, lockfile-lint, Semgrep, gitleaks        |
 | `mise run ci`               | lint, test and scan, as CI runs them                                           |
-| `mise run setup:accounts`   | Plans (or with `-- --apply`, makes) the Cloudflare and GitHub configuration    |
+| `mise run infra:plan`       | What OpenTofu would change in Cloudflare and GitHub                            |
+| `mise run infra:apply`      | Shows the plan, then applies it once you confirm                               |
+| `mise run infra:check`      | `tofu fmt`, `validate` and `test` with mocked providers (part of `lint`)       |
+| `mise run setup:secrets`    | Plans (or with `-- --apply`, sets) the secrets OpenTofu doesn't hold           |
 | `mise run dev`              | Local Worker with local D1, KV and rate limiters                               |
 | `mise run ingest:local`     | Load every Scryfall card into the local database                               |
 | `mise run check:production` | The post-deploy security checks, run against production                        |
@@ -291,8 +315,9 @@ the `lint`, `test` and `scan` jobs pass. The deploy job:
 4. Rolls back if anything fails. If there's no earlier version, as on the first deploy, it turns on `LOCKDOWN`
    instead.
 
-A new public path changes the WAF rule as well as the Worker: run `mise run setup:accounts --apply` before
-merging it, or the post-deploy check finds the path blocked and rolls the deploy back.
+A new public path changes the WAF rule as well as the Worker: add it to `infra/routes.json` and run
+`mise run infra:apply` before merging it, or the post-deploy check finds the path blocked and rolls the deploy
+back.
 
 A weekly workflow reruns the scans, and Dependabot proposes grouped updates after a 7-day cooldown.
 

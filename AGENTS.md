@@ -7,8 +7,11 @@ outrank convenience.
 
 - Never read `.env` or `.env.worker` aloud, print their values, or paste them anywhere. Ask the user to fill them in
   themselves rather than accepting tokens in chat.
-- `mise run setup:accounts` without `--apply` only reads. Run `--apply` only when the user asks, after they've
-  seen the plan it prints.
+- `mise run infra:plan`, `infra:adopt` and `setup:secrets` without `--apply` only read. Run `infra:apply`,
+  `infra:bootstrap` or `setup:secrets -- --apply` only when the user asks, after they've seen the plan. Never
+  pass `-auto-approve`, and never run `tofu state` commands or `tofu import` by hand.
+- Infrastructure changes go in `infra/` (OpenTofu). Secret values never do: they'd land in state. Put them in
+  `scripts/setup-secrets.mjs` instead.
 - Run `auth:lockdown` whenever the user asks, without debate. Run `auth:unlock` only when they ask, after saying why
   the lockdown happened, if that's known.
 - Production card data is loaded only by the Scryfall ingest workflow. Locally, use `mise run ingest:local`;
@@ -19,8 +22,8 @@ outrank convenience.
 
 ## Changing the Worker
 
-- Every new route goes in both `src/routes.mjs` (with its methods and rate limiter) and `PUBLIC_PATHS` in
-  `scripts/setup-accounts.mjs`. A test fails if the two drift.
+- Every new route goes in both `src/routes.mjs` (with its methods and rate limiter) and `public_paths` in
+  `infra/routes.json`. A test fails if the two drift.
 - Every new rate limiter needs a binding in `wrangler.jsonc`. Every new secret goes in `.env.example` or
   `.env.worker.example` with instructions for producing it, and never in `vars`.
 - User identity comes only from the verified token (`ctx.props`), never from tool arguments. Every query on user

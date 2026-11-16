@@ -1,0 +1,17 @@
+{
+  "public_paths": [
+    "/",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-protected-resource",
+    "/.well-known/oauth-protected-resource/mcp",
+    "/register",
+    "/token",
+    "/authorize",
+    "/callback",
+    "/download",
+    "/upload",
+    "/mcp"
+  ],
+  "access_paths": ["/authorize", "/callback", "/download", "/upload"],
+  "access_edge_prefix": "/cdn-cgi/access/"
+}

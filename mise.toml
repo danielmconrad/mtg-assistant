@@ -4,6 +4,8 @@
 node = "24.22.3"
 gh = "2.103.3"
 "npm:wrangler" = "4.161.0"
+# Infrastructure as code: infra/ (Cloudflare and GitHub), run with mise run infra:plan / infra:apply.
+opentofu = "1.13.2"
 # Security scanners, run by `mise run scan` and in CI.
 gitleaks = "8.30.1"
 osv-scanner = "2.7.1"
@@ -52,7 +54,8 @@ description = "Run the tests in watch mode"
 run = "npx vitest"
 
 [tasks.lint]
-description = "ESLint, Prettier, and the workflow linters (actionlint, zizmor)"
+description = "ESLint, Prettier, the workflow linters (actionlint, zizmor), and OpenTofu's checks"
+depends = ["infra:check"]
 run = [
   "npx eslint .",
   "npx prettier --check .",
@@ -92,9 +95,39 @@ run = "node scripts/generate-deck-validator.mjs"
 description = "Load every Scryfall card into the local dev database (network: about 112 MB from Scryfall)"
 run = ["wrangler d1 migrations apply mtg-assistant --local", "node scripts/ingest-scryfall.mjs --local"]
 
-[tasks."setup:accounts"]
-description = "Create or update Cloudflare and GitHub resources from .env (shows a plan, asks before changing anything)"
-run = "node scripts/setup-accounts.mjs"
+[tasks."infra:bootstrap"]
+description = "Create the private R2 bucket OpenTofu keeps its encrypted state in (once, before the first infra:plan)"
+run = "wrangler r2 bucket create mtg-assistant-tfstate"
+
+[tasks."infra:adopt"]
+description = "Find resources that already exist and write their IDs for infra/imports.tf to adopt (only reads)"
+run = "node scripts/infra-adopt.mjs"
+
+[tasks."infra:plan"]
+description = "Show what OpenTofu would change in Cloudflare and GitHub (only reads)"
+run = ["node scripts/tofu.mjs init -input=false", "node scripts/tofu.mjs plan"]
+
+[tasks."infra:apply"]
+description = "Show OpenTofu's plan, then apply it once you confirm"
+run = ["node scripts/tofu.mjs init -input=false", "node scripts/tofu.mjs apply"]
+
+[tasks."infra:sync-wrangler"]
+description = "Write OpenTofu's resource IDs and Access settings into wrangler.jsonc (commit it)"
+run = "node scripts/sync-wrangler.mjs"
+
+[tasks."infra:check"]
+description = "Format, validate and test infra/ against mocked providers (no credentials; downloads providers)"
+dir = "infra"
+run = [
+  "tofu init -backend=false -input=false -lockfile=readonly",
+  "tofu fmt -check -recursive",
+  "tofu validate",
+  "tofu test",
+]
+
+[tasks."setup:secrets"]
+description = "Set the Worker and Actions secrets and the Access Google login from .env (shows a plan, asks before changing anything)"
+run = "node scripts/setup-secrets.mjs"
 
 [tasks."auth:lockdown"]
 description = "Kill switch: make the production Worker answer 503 on every route (uses the admin token in .env)"
