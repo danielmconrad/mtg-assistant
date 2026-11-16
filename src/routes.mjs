@@ -1,6 +1,6 @@
 // Every path the Worker answers, with its methods and the rate limiter guarding it. Anything else is a
-// 404 here, and the WAF rule from scripts/setup-accounts.mjs blocks it before it reaches the Worker
-// (tests/node/setup-accounts.test.mjs keeps the two lists in step). No imports, so Node tests can load it.
+// 404 here, and the WAF rule infra/ builds from infra/routes.json blocks it before it reaches the Worker
+// (tests/node/infra.test.mjs keeps the two lists in step). No imports, so Node tests can load it.
 // OPTIONS lets browser-based MCP clients (such as MCP Inspector) send CORS preflights, which the OAuth
 // library answers; /authorize and /callback are page navigations, so they never get one.
 export const ROUTES = [

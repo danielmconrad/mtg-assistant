@@ -13,3 +13,11 @@ coverage/
 mise.local.toml
 .DS_Store
 .tmp
+
+# OpenTofu: providers, local state and plans never belong in Git (state lives encrypted in R2), and
+# infra:adopt's ID list is for one machine's first apply.
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+infra/adopt.auto.tfvars.json

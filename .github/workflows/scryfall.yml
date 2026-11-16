@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   ingest:
-    # Off until setup:accounts has created the database and the deploy has applied its migrations.
+    # Off until infra:apply has created the database and the deploy has applied its migrations.
     if: vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-24.04
     environment: production

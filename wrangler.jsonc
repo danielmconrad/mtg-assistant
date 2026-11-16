@@ -1,4 +1,4 @@
-// Cloudflare Worker configuration. `mise run setup:accounts` fills in the resource IDs marked
+// Cloudflare Worker configuration. `mise run infra:sync-wrangler` fills in the resource IDs marked
 // SETUP; until then local dev and tests use local simulations of each binding.
 // tests/config.test.mjs pins the security-relevant settings below.
 {
@@ -25,7 +25,7 @@
     "ACCESS_TEAM_DOMAIN": "conrad-tools.cloudflareaccess.com", // SETUP: <team>.cloudflareaccess.com
     "ACCESS_AUD": "4a902e2a79dcc7ac93d9546e59a1925e168a2f61c1446596cc3d4d3d4a31553c", // Access app audience tag: an identifier, not a secret (it's in every Access JWT). gitleaks:allow
   },
-  // Secrets (wrangler secret put, via setup:accounts): ALLOWED_EMAILS, GOOGLE_CLIENT_ID,
+  // Secrets (set by setup:secrets): ALLOWED_EMAILS, GOOGLE_CLIENT_ID,
   // GOOGLE_CLIENT_SECRET, DOWNLOAD_SIGNING_KEY, UPLOAD_SIGNING_KEY, and LOCKDOWN when the kill switch is on.
 
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "c39481a75484458584704eb4f899350e" }],
@@ -38,7 +38,7 @@
     },
   ],
   // Uploaded collection files, kept as uploaded. Private: no public access and no r2.dev URL
-  // (setup:accounts creates the bucket and turns the r2.dev URL off).
+  // (infra/ creates the bucket and turns the r2.dev URL off).
   "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "mtg-assistant-uploads" }],
 
   // Per-IP limits on the auth endpoints, downloads and uploads, and per-user limits on /mcp. Periods are 10 or 60 seconds.
