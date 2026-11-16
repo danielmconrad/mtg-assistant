@@ -30,6 +30,8 @@ variables {
   github_owner          = "owner"
   github_repository     = "mtg-assistant"
   state_passphrase      = "a test passphrase of at least thirty-two characters"
+  # Nothing to adopt, even after infra:adopt has written adopt.auto.tfvars.json: tests can't import.
+  existing = {}
 }
 
 run "waf_allows_exactly_the_worker_paths" {
