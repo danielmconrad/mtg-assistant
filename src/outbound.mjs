@@ -1,9 +1,10 @@
 // Every request the Worker makes to another site on a person's behalf goes through here. Only these
 // hosts are reachable, over HTTPS, and a redirect is followed only to another of them, so no tool can
 // be turned into a way to fetch arbitrary URLs. There is no generic "fetch a URL" tool.
-export const OUTBOUND_HOSTS = ['json.edhrec.com', 'archidekt.com'];
+export const OUTBOUND_HOSTS = ['json.edhrec.com', 'archidekt.com', 'backend.commanderspellbook.com'];
 const MAX_REDIRECTS = 3;
-// The most a response may hold; EDHREC pages and Archidekt decks are well under this.
+// The most a response may hold; EDHREC pages, Archidekt decks and a deck's Commander Spellbook combos
+// are well under this.
 export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export class OutboundRefused extends Error {}

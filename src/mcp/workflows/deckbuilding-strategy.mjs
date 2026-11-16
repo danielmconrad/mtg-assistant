@@ -57,7 +57,7 @@ A deck carries three brackets:
 
 check_deck fails a deck whose cards need a higher bracket than its target, upgrade adds included. Without a target, it notes the bracket the cards set.
 
-- Check the other bracket rules by reading the list. No tool detects two-card combos, chained extra turns or land denial that the rules-text tests miss.
+- Check the other bracket rules with find_combos (two-card combos Commander Spellbook knows) and by reading the list. No tool detects chained extra turns, uncatalogued combos or land denial that the rules-text tests miss.
 - See what's owned: search_cards with game_changers: true and include_protected: true.
 
 ## 3. Fill the roles: pick one template as a checklist
@@ -113,7 +113,7 @@ No published template covers 60-card singleton decks with a commander, so there'
 Go through these in order and report what you find. The deck-review playbook runs them with the tools.
 
 1. Plan: can the deck's plan be said in one sentence, and do the cards support it?
-2. Bracket: judge the plays-like bracket again, and check it against the target. check_deck compares the bracket the cards set (Game Changers, extra turns, mass land denial), upgrades included. Read the list and the upgrade adds for two-card combos and chained extra turns.
+2. Bracket: judge the plays-like bracket again, and check it against the target. check_deck compares the bracket the cards set (Game Changers, extra turns, mass land denial), upgrades included. Run find_combos on the deck, and on the upgrade adds with the list, for two-card combos; read the list for chained extra turns.
 3. Roles: compare role counts with the targets. Name the weakest role.
 4. Mana: compare lands with Karsten's suggestion, look at the curve shape, and compare color sources with pips.
 5. Win conditions: are there enough, and are they owned? Can the deck still win if the commander is removed?

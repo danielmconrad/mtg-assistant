@@ -19,7 +19,8 @@ The bracket table and the three brackets a deck carries (target, lowest legal, p
 - check_deck: the lowest legal bracket the cards set (Game Changers, extra turns, mass land denial) and whether that's above the target.
 - show_deck with oracle: true: the whole list with rules text. Read it all; the call rests on it.
 - deck_stats: the curve, ramp and interaction counts, and opening-hand odds.
-- get_cards for any card whose interactions need a closer look.
+- find_combos with the slug: the combos Commander Spellbook knows in the deck, and those one card away. Add steps: true for any whose speed matters to the call.
+- get_cards for any card whose interactions need a closer look; rulings: true lists its rulings.
 
 ## 3. Judge
 
@@ -28,7 +29,7 @@ Work through the plays-like criteria, citing cards for each:
 - Speed: the turn the deck can usually win or lock the game, against the table's "games last about" column.
 - Fast mana and tutors: how often the deck finds its best cards early.
 - Engine: how consistently the commander and its pieces come together.
-- Combos: two-card combos (and when they can assemble: none before turn 6 in bracket 3), near-combos one tutor away, and chained extra turns. No tool detects these.
+- Combos: two-card combos (and when they can assemble: none before turn 6 in bracket 3), near-combos one tutor away (find_combos' one-card-away list), and chained extra turns. find_combos knows only combos Commander Spellbook has catalogued; read the list for chained extra turns and anything it misses.
 - Interaction and resilience: cheap removal, counterspells, protection, and recovery from a wipe.
 
 Then pick one bracket. A deck whose cards allow a higher bracket can still play below it from a thin pool or a slow plan; tight synergy and cheap interaction push it above.

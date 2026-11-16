@@ -36,7 +36,7 @@ Search every card for ones the person has no available copy of, for the deck's c
 ## 4. Keep the upgraded deck legal
 
 - Checks: check_deck judges a saved deck's upgrades too. It fails adds that raise the bracket above the target (Game Changers, extra turns, mass land denial), adds outside the color identity, cards not legal in the format, and second copies in a singleton deck.
-- What no tool sees: read the adds for two-card combos (Heliod, Sun-Crowned with Walking Ballista, for instance) and chained extra turns, against the target bracket. Say which bracket the upgraded deck would play like, and warn about or drop an add that takes it above the target.
+- Combos: find_combos with the deck's cards plus the adds shows two-card combos the adds create (Heliod, Sun-Crowned with Walking Ballista, for instance); read the adds for chained extra turns too, against the target bracket. Say which bracket the upgraded deck would play like, and warn about or drop an add that takes it above the target.
 
 ## 5. Record and price
 
