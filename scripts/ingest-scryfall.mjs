@@ -5,8 +5,9 @@
 //   ... --dry-run                                       # download, diff and write SQL, but apply nothing
 //   ... --allow-mass-delete                             # see MAX_DELETE_SHARE
 //
-// 1. Streams Scryfall's two bulk files (about 107 MB gzipped), the same ones mtg-manager used: Oracle
-//    Cards marks each card's default printing, Default Cards has every printing.
+// 1. Streams Scryfall's bulk files (about 112 MB gzipped): Oracle Cards marks each card's default
+//    printing and Default Cards has every printing, the two mtg-manager used, and Rulings has every
+//    card's rulings.
 // 2. Reads the hash of every row already in D1 and diffs against it, so an unchanged card, printing or
 //    price is never rewritten (D1 bills per row written).
 // 3. Writes the changes as SQL files and applies them with `wrangler d1 execute --file`.
@@ -57,7 +58,8 @@ export async function* textLines(chunks) {
   if (buffer.trim()) yield buffer;
 }
 
-// Streams one bulk file (gzipped JSON Lines, a card per line) through onCard; returns its build time.
+// Streams one bulk file (gzipped JSON Lines, a card or ruling per line) through onCard; returns its
+// build time.
 async function readBulkFile(type, onCard) {
   const listing = await fetchWithRetries(`${BULK_DATA_URL}/${type}`, { headers: HEADERS });
   if (!listing.ok) throw new Error(`Scryfall bulk-data listing returned HTTP ${listing.status}`);
@@ -82,7 +84,9 @@ async function downloadPrintings() {
   const printings = [];
   await readBulkFile('oracle_cards', (object, at) => printings.push(toCard(object, at, { defaultPrinting: true })));
   const builtAt = await readBulkFile('default_cards', (object, at) => printings.push(toCard(object, at)));
-  return { printings, builtAt };
+  const rulings = [];
+  await readBulkFile('rulings', (object) => rulings.push(object));
+  return { printings, rulings, builtAt };
 }
 
 function wrangler(args) {
@@ -128,9 +132,9 @@ async function main() {
   const [target] = targets;
 
   log('Downloading Scryfall bulk data');
-  const { printings, builtAt } = await downloadPrintings();
-  const rows = await buildRows(printings);
-  log(`Built ${rows.cards.length} cards, ${rows.printings.length} printings`);
+  const { printings, rulings, builtAt } = await downloadPrintings();
+  const rows = await buildRows(printings, rulings);
+  log(`Built ${rows.cards.length} cards, ${rows.printings.length} printings, ${rows.rulings.length} cards' rulings`);
 
   log(`Reading current hashes (${target.slice(2)})`);
   const current = {};
@@ -140,6 +144,7 @@ async function main() {
     printings: diffRows(rows.printings, TABLES.printings.key, current.printings),
     prices: diffRows(rows.prices, TABLES.prices.key, current.prices),
     commander_pool: diffRows(rows.commander_pool, TABLES.commander_pool.key, current.commander_pool),
+    rulings: diffRows(rows.rulings, TABLES.rulings.key, current.rulings),
   };
   for (const [table, { upserts, deletes }] of Object.entries(diff)) {
     log(`  ${table}: ${upserts.length} to write, ${deletes.length} to delete`);

@@ -329,6 +329,16 @@ export async function printingCounts(db, oracleIds) {
   return counts;
 }
 
+// Each card's rulings ({ date, source, text }, in Scryfall's order), by oracle ID; cards with none are absent.
+export async function loadRulings(db, oracleIds) {
+  if (!oracleIds.length) return new Map();
+  const { results } = await db
+    .prepare('SELECT oracle_id, rulings FROM rulings WHERE oracle_id IN (SELECT value FROM json_each(?))')
+    .bind(JSON.stringify([...new Set(oracleIds)]))
+    .all();
+  return new Map(results.map((row) => [row.oracle_id, JSON.parse(row.rulings)]));
+}
+
 // The formats every card is judged in, from the ingest, or from the loaded rows when an older ingest
 // didn't record them.
 function knownFormats(meta, rows) {

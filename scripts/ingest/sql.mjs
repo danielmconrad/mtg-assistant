@@ -53,6 +53,7 @@ export const TABLES = {
     key: 'oracle_id',
     columns: ['oracle_id', 'identity', 'themes', 'tribes', 'is_land', 'can_command', 'hash'],
   },
+  rulings: { key: 'oracle_id', columns: ['oracle_id', 'rulings', 'hash'] },
 };
 
 const bytes = (text) => new TextEncoder().encode(text).length;
@@ -159,6 +160,8 @@ export function ingestStatements(diff, meta) {
     ...upsertStatements('prices', diff.prices.upserts),
     ...deleteStatements('commander_pool', diff.commander_pool.deletes),
     ...upsertStatements('commander_pool', diff.commander_pool.upserts),
+    ...deleteStatements('rulings', diff.rulings.deletes),
+    ...upsertStatements('rulings', diff.rulings.upserts),
     ...metaStatements(meta),
   ];
 }

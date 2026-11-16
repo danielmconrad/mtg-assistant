@@ -122,6 +122,23 @@ upgrades:
     reason: More bears.
 `;
 
+export const RULINGS = [
+  {
+    object: 'ruling',
+    oracle_id: CARDS[0].oracle_id,
+    source: 'wotc',
+    published_at: '2021-04-16',
+    comment: 'Sol Ring’s mana can be spent on anything.',
+  },
+  {
+    object: 'ruling',
+    oracle_id: CARDS[0].oracle_id,
+    source: 'scryfall',
+    published_at: '2022-01-01',
+    comment: 'A note from Scryfall.',
+  },
+];
+
 export const OWNER = 'daniel@example.com';
 export const OTHER = 'second@example.com';
 
@@ -135,7 +152,7 @@ export const callTool = async (session, name, args = {}) => {
 // Loads the fixture cards; call it in beforeAll.
 export async function loadFixtureCards() {
   await clearCardTables();
-  await ingest(CARDS);
+  await ingest(CARDS, [], RULINGS);
 }
 
 // Signs both people in and gives the owner their collections and deck; call it in beforeEach, since

@@ -126,9 +126,10 @@ function preferDefault(printings, keyOf) {
   return kept;
 }
 
-// Rows for every card, printing and price, sorted by key so output is stable. A card's base printing is
-// Scryfall's default printing for its name, else the first one seen.
-export async function buildRows(printings) {
+// Rows for every card, printing, price and card's rulings, sorted by key so output is stable. A card's
+// base printing is Scryfall's default printing for its name, else the first one seen. rulings are
+// Scryfall ruling objects; those for cards not loaded are left out.
+export async function buildRows(printings, rulings = []) {
   const valid = [...printings].filter((printing) => printing?.id && printing.oracleId && printing.name);
   const unique = preferDefault(valid, (printing) => printing.id);
   const base = preferDefault(unique.values(), (printing) => printing.oracleId);
@@ -147,8 +148,27 @@ export async function buildRows(printings) {
     printings: printingRows.sort(byKey('id')),
     prices: prices.sort(byKey('printing_id')),
     commander_pool: pool.rows.sort(byKey('oracle_id')),
+    rulings: (await rulingRows(rulings, new Set(base.keys()))).sort(byKey('oracle_id')),
     creatureTypes: pool.types,
   };
+}
+
+// One row per card with rulings, each its rulings in Scryfall's order. Rulings without an oracle ID or
+// text are skipped.
+async function rulingRows(rulings, oracleIds) {
+  const byCard = new Map();
+  for (const ruling of rulings) {
+    if (!oracleIds.has(ruling?.oracle_id) || typeof ruling.comment !== 'string' || !ruling.comment.trim()) continue;
+    if (!byCard.has(ruling.oracle_id)) byCard.set(ruling.oracle_id, []);
+    byCard.get(ruling.oracle_id).push({
+      date: ruling.published_at ?? null,
+      source: ruling.source ?? null,
+      text: ruling.comment.trim(),
+    });
+  }
+  return Promise.all(
+    [...byCard].map(([oracleId, list]) => withHash({ oracle_id: oracleId, rulings: JSON.stringify(list) })),
+  );
 }
 
 // The commander-ranking pool: every Commander-legal card (as src/core/commanders.mjs

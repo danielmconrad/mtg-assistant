@@ -90,6 +90,17 @@ describe('get_cards', () => {
     expect(text).toMatch(/Decks: .*bears/);
   });
 
+  it('counts rulings, and lists them when asked', async () => {
+    let { text } = await callTool(owner, 'get_cards', { names: ['Sol Ring', 'Llanowar Elves'] });
+    expect(text).toContain('  Rulings: 2 (get_cards with rulings: true lists them)');
+    expect(text).toContain('  Rulings: none');
+    expect(text).not.toContain('mana can be spent');
+    ({ text } = await callTool(owner, 'get_cards', { names: ['Sol Ring'], rulings: true }));
+    expect(text).toContain('  Rulings (2):');
+    expect(text).toContain('    - 2021-04-16: Sol Ring’s mana can be spent on anything.');
+    expect(text).toContain('    - 2022-01-01 (Scryfall): A note from Scryfall.');
+  });
+
   it('suggests names for misspellings', async () => {
     const { text } = await callTool(owner, 'get_cards', { names: ['Llanowar Elfs', 'Zzzzzzzzzz'] });
     expect(text).toContain('Llanowar Elfs: no card by that name; did you mean Llanowar Elves?');

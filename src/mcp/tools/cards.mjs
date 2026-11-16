@@ -18,6 +18,7 @@ import {
 import {
   loadMatchingRows,
   loadOracleIdRows,
+  loadRulings,
   nameSuggester,
   printingCounts,
   scanOracleIds,
@@ -241,10 +242,26 @@ const getCardsSchema = z
       .min(1)
       .max(20)
       .describe('Exact card names; misspellings get suggestions'),
+    rulings: z
+      .boolean()
+      .default(false)
+      .describe('List each card’s official rulings (Wizards’ release notes and Scryfall’s notes) in full'),
   })
   .strict();
 
-async function getCards({ names }, { db, user, now }) {
+// A card's rulings, as lines after its report: just how many unless they're asked for.
+function rulingLines(rulings, full) {
+  if (!rulings?.length) return ['  Rulings: none'];
+  if (!full) return [`  Rulings: ${rulings.length} (get_cards with rulings: true lists them)`];
+  return [
+    `  Rulings (${rulings.length}):`,
+    ...rulings.map(
+      ({ date, source, text }) => `    - ${date ?? 'undated'}${source === 'scryfall' ? ' (Scryfall)' : ''}: ${text}`,
+    ),
+  ];
+}
+
+async function getCards({ names, rulings: fullRulings }, { db, user, now }) {
   const [collections, { index, meta }, decks] = await Promise.all([
     loadCollections(db, user.id),
     personalIndex(db, user.id, { names }),
@@ -252,10 +269,8 @@ async function getCards({ names }, { db, user, now }) {
   ]);
   const reports = cardReports(names, { index, collections, decks: decks.filter(({ deck }) => isActiveDeck(deck)) });
   // The index holds only the printings a request reads; report how many Scryfall has.
-  const counts = await printingCounts(
-    db,
-    reports.filter((report) => report.card).map((report) => report.card.oracleId),
-  );
+  const found = reports.filter((report) => report.card).map((report) => report.card.oracleId);
+  const [counts, rulings] = await Promise.all([printingCounts(db, found), loadRulings(db, found)]);
   for (const report of reports.filter((candidate) => candidate.card)) {
     report.printings = counts.get(report.card.oracleId) ?? report.printings;
   }
@@ -269,7 +284,11 @@ async function getCards({ names }, { db, user, now }) {
         : `${report.name}: no card by that name; check the spelling`;
     }
   }
-  return textResult(cardReportLines(reports), [staleDataWarning(meta, now)].filter(Boolean));
+  const lines = reports.flatMap((report) => [
+    ...cardReportLines([report]),
+    ...(report.card ? rulingLines(rulings.get(report.card.oracleId), fullRulings) : []),
+  ]);
+  return textResult(lines, [staleDataWarning(meta, now)].filter(Boolean));
 }
 
 export const CARD_TOOLS = [
@@ -285,7 +304,7 @@ export const CARD_TOOLS = [
     name: 'get_cards',
     title: 'Look up cards',
     description:
-      'Look up cards by exact name, owned or not: rules text, Commander legality, Game Changer status, EDHREC rank, cheapest price, available and protected copies, and every deck that plays, cuts, adds or considered the card.',
+      'Look up cards by exact name, owned or not: rules text, Commander legality, Game Changer status, EDHREC rank, cheapest price, available and protected copies, every deck that plays, cuts, adds or considered the card, and its official rulings (counted, or listed with rulings: true). Answer rules questions from the rulings rather than memory.',
     schema: getCardsSchema,
     handler: getCards,
   },
