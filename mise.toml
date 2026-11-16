@@ -143,6 +143,10 @@ run = ["wrangler secret delete LOCKDOWN", "node scripts/post-deploy-check.mjs"]
 description = "Run the post-deploy security checks against production (network)"
 run = "node scripts/post-deploy-check.mjs"
 
+[tasks."ebay:seller"]
+description = "List an eBay seller's Magic singles as CSV: mise run ebay:seller -- <seller> [--out file.csv] (network)"
+run = "node scripts/ebay-seller.mjs"
+
 [tasks.inspector]
 description = "Open MCP Inspector to try the server's tools (start `mise run dev` first)"
 run = "npx --yes @modelcontextprotocol/inspector"
