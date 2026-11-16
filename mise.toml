@@ -109,7 +109,9 @@ run = ["node scripts/tofu.mjs init -input=false", "node scripts/tofu.mjs plan"]
 
 [tasks."infra:apply"]
 description = "Show OpenTofu's plan, then apply it once you confirm"
-run = ["node scripts/tofu.mjs init -input=false", "node scripts/tofu.mjs apply"]
+# raw: connects your terminal, so OpenTofu's "Enter a value" prompt can read your yes.
+raw = true
+run =["node scripts/tofu.mjs init -input=false", "node scripts/tofu.mjs apply"]
 
 [tasks."infra:sync-wrangler"]
 description = "Write OpenTofu's resource IDs and Access settings into wrangler.jsonc (commit it)"
