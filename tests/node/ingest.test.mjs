@@ -111,6 +111,33 @@ describe('buildRows', () => {
     expect(rows.prices.find((row) => row.printing_id === 'sol-ring-promo')).toMatchObject({ usd: 12, usd_foil: null });
   });
 
+  it('groups rulings by card, in Scryfall’s order, skipping blank ones and unknown cards', async () => {
+    const ruling = (oracleId, comment, date = '2024-01-01') => ({
+      object: 'ruling',
+      oracle_id: oracleId,
+      source: 'wotc',
+      published_at: date,
+      comment,
+    });
+    const rows = await buildRows(
+      [asDefault(solRing), asDefault(gruul)],
+      [
+        ruling('sol-ring-oracle', 'Second.', '2025-01-01'),
+        { ...ruling('sol-ring-oracle', 'First.'), source: 'scryfall' },
+        ruling('sol-ring-oracle', '  '),
+        ruling('missing-oracle', 'No such card.'),
+      ],
+    );
+    expect(rows.rulings).toHaveLength(1);
+    expect(rows.rulings[0].oracle_id).toBe('sol-ring-oracle');
+    expect(JSON.parse(rows.rulings[0].rulings)).toEqual([
+      { date: '2025-01-01', source: 'wotc', text: 'Second.' },
+      { date: '2024-01-01', source: 'scryfall', text: 'First.' },
+    ]);
+    const again = await buildRows([asDefault(solRing)], [ruling('sol-ring-oracle', 'Second.', '2025-01-01')]);
+    expect(again.rulings[0].hash).not.toBe(rows.rulings[0].hash);
+  });
+
   it('skips objects without an ID, oracle ID or name', async () => {
     const rows = await buildRows([asDefault({ ...solRing, oracle_id: undefined }), asDefault(gruul)]);
     expect(rows.cards.map((row) => row.name)).toEqual(['Gruul Signet']);
@@ -225,6 +252,7 @@ describe('statements', () => {
       printings: { upserts: [], deletes: [] },
       prices: { upserts: [], deletes: [] },
       commander_pool: { upserts: [], deletes: [] },
+      rulings: { upserts: [], deletes: [] },
     };
     const statements = ingestStatements(diff, { ingested_at: 'now' });
     const position = (pattern) => statements.findIndex((statement) => pattern.test(statement));

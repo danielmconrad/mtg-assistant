@@ -31,7 +31,8 @@ Each tool is mtg-manager's command of the same purpose, and answers with that co
   cards, the regexes run on pages of cards and only the matches are loaded. A search that still matches
   over 4,000 cards asks for narrower filters.
 - **`get_cards`** (`card:show`): shows any card by name, owned or not. Misspellings get suggestions from every
-  card's name.
+  card's name. It counts each card's official rulings, from Scryfall's Rulings bulk file, and lists them with
+  `rulings: true`, so rules questions are answered from them rather than from memory.
 - **`collection_summary`** (`collection:check`): the collection's totals and each binder (deck binders and
   protected ones marked), how fresh the card data is, and any rows that match no printing.
 - **`update_binder`**: renames a binder, protects or unprotects it, or deletes it once empty. A built deck's
@@ -189,7 +190,7 @@ Then:
 ```sh
 cp .env.worker.example .env.worker   # local Worker secrets; see the comments inside
 mise run db:migrate:local
-mise run ingest:local              # every Scryfall card into the local database (about 107 MB download)
+mise run ingest:local              # every Scryfall card into the local database (about 112 MB download)
 mise run dev                      # http://localhost:8787
 mise run inspector                # MCP Inspector, to call the tools
 ```
@@ -263,10 +264,11 @@ Every card on Scryfall lives in D1:
   types.
 - **`prices`:** USD, foil, etched and EUR prices.
 - **`cards_fts`:** a full-text index over names, type lines and rules text.
+- **`rulings`:** each card's rulings (Wizards' release notes and Scryfall's notes), as one row per card.
 
 `.github/workflows/scryfall.yml` runs `scripts/ingest-scryfall.mjs --remote` every day at 11:17 UTC, after
 Scryfall rebuilds its bulk files, and can also be started by hand from the Actions tab. It uses a token that can
-only edit D1. Each run streams the same two bulk files mtg-manager used, compares every row's hash with what's
+only edit D1. Each run streams the same two bulk files mtg-manager used, and Scryfall's Rulings file, compares every row's hash with what's
 already in D1, and writes only what changed. A run with no changes writes one metadata row. It stops rather than
 delete more than 2% of a table, since that would point to a bad download.
 

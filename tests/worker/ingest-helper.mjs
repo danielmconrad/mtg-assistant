@@ -6,7 +6,8 @@ import { TABLES, ingestStatements } from '../../scripts/ingest/sql.mjs';
 import { toCard } from '../../src/core/scryfall.mjs';
 
 export const BUILT = '2026-11-12T10:06:21.099Z';
-export const INGESTED = '2026-11-12T11:20:00.000Z';
+// Loaded just now, so tools never warn that the card data is stale, whatever day the tests run.
+export const INGESTED = new Date().toISOString();
 
 async function currentHashes() {
   const current = {};
@@ -17,13 +18,14 @@ async function currentHashes() {
   return current;
 }
 
-// defaults are Scryfall objects for each card's default printing; others are further printings.
-export async function ingest(defaults, others = []) {
+// defaults are Scryfall objects for each card's default printing; others are further printings, and
+// rulings Scryfall ruling objects.
+export async function ingest(defaults, others = [], rulings = []) {
   const printings = [
     ...defaults.map((object) => toCard(object, BUILT, { defaultPrinting: true })),
     ...others.map((object) => toCard(object, BUILT)),
   ];
-  const rows = await buildRows(printings);
+  const rows = await buildRows(printings, rulings);
   const current = await currentHashes();
   const diff = Object.fromEntries(
     Object.entries(TABLES).map(([table, { key }]) => [table, diffRows(rows[table], key, current[table])]),
@@ -41,7 +43,7 @@ export async function ingest(defaults, others = []) {
 
 export const clearCardTables = () =>
   env.DB.batch(
-    ['cards', 'printings', 'prices', 'cards_fts', 'card_data_meta', 'commander_pool'].map((table) =>
+    ['cards', 'printings', 'prices', 'cards_fts', 'card_data_meta', 'commander_pool', 'rulings'].map((table) =>
       env.DB.prepare(`DELETE FROM ${table}`),
     ),
   );

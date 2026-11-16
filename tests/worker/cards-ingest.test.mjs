@@ -54,6 +54,28 @@ describe('ingest SQL in D1', () => {
     expect(meta.value).toBe(BUILT);
   });
 
+  it('loads rulings, and rewrites or removes them as they change', async () => {
+    const ruling = (comment) => ({
+      oracle_id: reanimate.oracle_id,
+      source: 'wotc',
+      published_at: '2024-01-01',
+      comment,
+    });
+    let { diff } = await runIngest([reanimate, llanowar], [], [ruling('It can target your own creature cards.')]);
+    expect(diff.rulings.upserts).toHaveLength(1);
+    const stored = await env.DB.prepare('SELECT rulings FROM rulings WHERE oracle_id = ?')
+      .bind(reanimate.oracle_id)
+      .first();
+    expect(JSON.parse(stored.rulings)).toEqual([
+      { date: '2024-01-01', source: 'wotc', text: 'It can target your own creature cards.' },
+    ]);
+    ({ diff } = await runIngest([reanimate, llanowar], [], [ruling('It can target your own creature cards.')]));
+    expect(diff.rulings).toEqual({ upserts: [], deletes: [] });
+    ({ diff } = await runIngest([reanimate, llanowar]));
+    expect(diff.rulings.deletes).toEqual([reanimate.oracle_id]);
+    expect(await count('rulings')).toBe(0);
+  });
+
   it('finds cards that fit a color identity with the bitmask', async () => {
     await ingest([reanimate, urzasSaga, llanowar]);
     const golgari = 4 | 16;
