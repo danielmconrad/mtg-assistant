@@ -7,7 +7,8 @@
 //
 // 1. Streams Scryfall's bulk files (about 112 MB gzipped): Oracle Cards marks each card's default
 //    printing and Default Cards has every printing, the two mtg-manager used, and Rulings has every
-//    card's rulings.
+//    card's rulings. Card Kingdom's public price list (about 70 MB) adds its price and stock to each
+//    printing.
 // 2. Reads the hash of every row already in D1 and diffs against it, so an unchanged card, printing or
 //    price is never rewritten (D1 bills per row written).
 // 3. Writes the changes as SQL files and applies them with `wrangler d1 execute --file`.
@@ -17,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { toCard } from '../src/core/scryfall.mjs';
+import { PRICE_LIST_URL, cardKingdomPrices, withCardKingdom } from './ingest/cardkingdom.mjs';
 import { buildRows, diffRows } from './ingest/rows.mjs';
 import { TABLES, chunkStatements, ingestStatements, literal } from './ingest/sql.mjs';
 
@@ -86,7 +88,17 @@ async function downloadPrintings() {
   const builtAt = await readBulkFile('default_cards', (object, at) => printings.push(toCard(object, at)));
   const rulings = [];
   await readBulkFile('rulings', (object) => rulings.push(object));
-  return { printings, rulings, builtAt };
+  return { printings: withCardKingdom(printings, await downloadCardKingdom()), rulings, builtAt };
+}
+
+// Card Kingdom's prices by printing. A failed download stops the ingest rather than writing every
+// printing without them.
+async function downloadCardKingdom() {
+  const response = await fetchWithRetries(PRICE_LIST_URL, { headers: HEADERS });
+  if (!response.ok) throw new Error(`Card Kingdom price list returned HTTP ${response.status}`);
+  const prices = cardKingdomPrices(await response.json());
+  log(`  Card Kingdom: ${prices.size} nonfoil printings priced`);
+  return prices;
 }
 
 function wrangler(args) {

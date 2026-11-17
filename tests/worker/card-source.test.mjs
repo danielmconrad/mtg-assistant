@@ -45,16 +45,20 @@ const lea = {
 };
 
 // What mtg-manager's cache held for a Scryfall object: toCard, every known format filled in, prices
-// with two decimals, and the bulk build time.
+// with two decimals, and the bulk build time; plus Card Kingdom's price and stock, none for these.
 function expectedCard(object, { defaultPrinting = false } = {}) {
   const card = toCard(object, BUILT, { defaultPrinting });
   const formats = ['commander', 'oldschool', 'standard'];
   return {
     ...card,
     legalities: { ...Object.fromEntries(formats.map((format) => [format, 'not_legal'])), ...card.legalities },
-    prices: Object.fromEntries(
-      Object.entries(card.prices).map(([field, value]) => [field, value === null ? null : Number(value).toFixed(2)]),
-    ),
+    prices: {
+      ...Object.fromEntries(
+        Object.entries(card.prices).map(([field, value]) => [field, value === null ? null : Number(value).toFixed(2)]),
+      ),
+      ckUsd: null,
+      ckInStock: null,
+    },
   };
 }
 

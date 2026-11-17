@@ -1,6 +1,7 @@
 // Runs an ingest into the test D1 the way scripts/ingest-scryfall.mjs does: diff against the hashes
 // already there, then apply the statements in order.
 import { env } from 'cloudflare:test';
+import { withCardKingdom } from '../../scripts/ingest/cardkingdom.mjs';
 import { buildRows, diffRows } from '../../scripts/ingest/rows.mjs';
 import { TABLES, ingestStatements } from '../../scripts/ingest/sql.mjs';
 import { toCard } from '../../src/core/scryfall.mjs';
@@ -18,13 +19,17 @@ async function currentHashes() {
   return current;
 }
 
-// defaults are Scryfall objects for each card's default printing; others are further printings, and
-// rulings Scryfall ruling objects.
-export async function ingest(defaults, others = [], rulings = []) {
-  const printings = [
-    ...defaults.map((object) => toCard(object, BUILT, { defaultPrinting: true })),
-    ...others.map((object) => toCard(object, BUILT)),
-  ];
+// defaults are Scryfall objects for each card's default printing; others are further printings,
+// rulings Scryfall ruling objects, and cardKingdom Card Kingdom's prices ({ printingId: { price,
+// inStock } }, as cardKingdomPrices reads them).
+export async function ingest(defaults, others = [], rulings = [], cardKingdom = new Map()) {
+  const printings = withCardKingdom(
+    [
+      ...defaults.map((object) => toCard(object, BUILT, { defaultPrinting: true })),
+      ...others.map((object) => toCard(object, BUILT)),
+    ],
+    cardKingdom,
+  );
   const rows = await buildRows(printings, rulings);
   const current = await currentHashes();
   const diff = Object.fromEntries(

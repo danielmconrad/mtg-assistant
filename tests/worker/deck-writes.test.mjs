@@ -198,7 +198,7 @@ describe('update_deck', () => {
     expect(deck.playtests).toEqual([{ date: today(), notes: 'Won on turn 9.' }]);
     expect(deck.budget).toEqual({ amount: 20, currency: 'USD' });
     expect((await callTool(owner, 'deck_upgrades', { slug: 'bears' })).text).toMatch(
-      /Lightning Bolt[\s\S]*of 20\.00 USD budget/,
+      /Lightning Bolt: buy 1 × [\d.]+ USD \(\w+ #\w+, TCGplayer\)[\s\S]*of 20\.00 USD budget/,
     );
     await callTool(owner, 'update_deck', {
       slug: 'bears',

@@ -43,6 +43,14 @@ const TREKKER_PRINTINGS = [
   },
 ];
 const unowned = scryfallCard('Unowned', { prices: price('0.01') });
+// Card Kingdom: Sol Ring's cheapest copy is out of stock, so its in-stock LTC copy sets the price; it
+// has Trekker only as the showcase, which TCGplayer prices highest.
+const CARD_KINGDOM = new Map([
+  ['sol-sld', { price: 1.49, inStock: false }],
+  ['sol-ltc', { price: 1.99, inStock: true }],
+  ['sol-ring-print', { price: 2.49, inStock: true }],
+  ['trekker-trk-showcase', { price: 0.5, inStock: true }],
+]);
 const USER = 'user-parity';
 
 let collections;
@@ -58,6 +66,8 @@ beforeAll(async () => {
   await ingest(
     [solRing, goldOnly, unpriced, trekker, unowned],
     [...SOL_PRINTINGS, ...GOLD_PRINTINGS, ...TREKKER_PRINTINGS],
+    [],
+    CARD_KINGDOM,
   );
   const row = (name, id, position) => ({
     name,
@@ -127,7 +137,8 @@ describe('the reduced owned printings', () => {
         );
       }
     }
-    expect(cheapestPrice(reduced, cardIn(reduced, 'Sol Ring'))).toBe(0.99);
+    expect(cheapestPrice(reduced, cardIn(reduced, 'Sol Ring'))).toBe(1.99);
+    expect(cheapestPrice(reduced, cardIn(reduced, 'Trekker'))).toBe(0.5);
     expect(cheapestPrice(reduced, cardIn(reduced, 'Sol Ring'), 'EUR')).toBe(0.5);
     expect(cheapestPrice(reduced, cardIn(reduced, 'Gold Only'))).toBe(2);
     expect(cheapestPrice(reduced, cardIn(reduced, 'Unpriced'))).toBeNull();
@@ -140,13 +151,21 @@ describe('the reduced owned printings', () => {
         const [a, b] = [full, reduced].map((index) =>
           cheapestQuote(index, { card: cardIn(index, name) }, { currency, now }),
         );
-        expect({ cents: b.unitCents, printing: b.printing?.id, problem: b.problem }, `${name} ${currency}`).toEqual({
-          cents: a.unitCents,
-          printing: a.printing?.id,
-          problem: a.problem,
+        const summary = (quote) => ({
+          cents: quote.unitCents,
+          printing: quote.printing?.id,
+          source: quote.source,
+          elsewhere: quote.elsewhere?.printing.id,
+          problem: quote.problem,
         });
+        expect(summary(b), `${name} ${currency}`).toEqual(summary(a));
       }
     }
+    const sol = cheapestQuote(reduced, { card: cardIn(reduced, 'Sol Ring') }, { currency: 'USD', now });
+    expect(sol).toMatchObject({ unitCents: 199, source: 'Card Kingdom', inStock: true, printing: { id: 'sol-ltc' } });
+    expect(sol.elsewhere).toMatchObject({ unitCents: 99, source: 'TCGplayer', printing: { id: 'sol-cmm' } });
+    const gold = cheapestQuote(reduced, { card: cardIn(reduced, 'Gold Only') }, { currency: 'USD', now });
+    expect(gold).toMatchObject({ unitCents: 200, source: 'TCGplayer' });
   });
 
   it('give the same search results, sorted by price', () => {
@@ -161,7 +180,7 @@ describe('the reduced owned printings', () => {
     expect(run(reducedForSearch, { set: ['trk'], rarity: ['rare'] })).toEqual(
       run(full, { set: ['trk'], rarity: ['rare'] }),
     );
-    expect(run(reducedForSearch, { set: ['trk'], rarity: ['rare'] })).toEqual([['Trekker', 1, 0.25, 'trekker-trk']]);
+    expect(run(reducedForSearch, { set: ['trk'], rarity: ['rare'] })).toEqual([['Trekker', 1, 0.5, 'trekker-trk']]);
   });
 
   it('choose the same printings for exports', () => {

@@ -14,7 +14,7 @@ const COLOR_BITS = [
   ['R', 8],
   ['G', 16],
 ];
-const PRICE_FIELDS = { usd: 'usd', usd_foil: 'usdFoil', usd_etched: 'usdEtched', eur: 'eur' };
+const PRICE_FIELDS = { usd: 'usd', usd_foil: 'usdFoil', usd_etched: 'usdEtched', eur: 'eur', ck_usd: 'ckUsd' };
 
 export const identityLetters = (mask) => COLOR_BITS.filter(([, bit]) => mask & bit).map(([letter]) => letter);
 
@@ -27,7 +27,7 @@ const CARD_COLUMNS = `c.oracle_id, c.name, c.front_name, c.mana_cost, c.mana_val
   c.oracle_text, c.keywords, c.color_identity, c.produced_mana, c.legalities, c.game_changer, c.edhrec_rank`;
 const PRINTING_COLUMNS = `p.id, p.oracle_id, p.name AS printing_name, p.set_code, p.collector_number, p.rarity,
   p.border_color, p.set_type, p.flavor_name, p.is_default, p.overrides, p.printing_legalities,
-  pr.usd, pr.usd_foil, pr.usd_etched, pr.eur`;
+  pr.usd, pr.usd_foil, pr.usd_etched, pr.eur, pr.ck_usd, pr.ck_in_stock`;
 
 // Every printing of every card matching condition (SQL on cards c), as one row per printing with its
 // card's fields, in the shape toCardModel reads.
@@ -106,7 +106,10 @@ export function toCardModel(row, context, shared = cardFields(row, context)) {
     setType: row.set_type,
     rarity: row.rarity,
     edhrecRank: shared.edhrecRank,
-    prices: Object.fromEntries(Object.entries(PRICE_FIELDS).map(([column, field]) => [field, priceText(row[column])])),
+    prices: {
+      ...Object.fromEntries(Object.entries(PRICE_FIELDS).map(([column, field]) => [field, priceText(row[column])])),
+      ckInStock: row.ck_in_stock === null || row.ck_in_stock === undefined ? null : row.ck_in_stock === 1,
+    },
     defaultPrinting: row.is_default === 1,
     fetchedAt: context.builtAt,
   };
@@ -224,29 +227,34 @@ const OWNED_ORACLE_IDS = `SELECT DISTINCT op.oracle_id FROM collection_entries o
 // Playable as src/core/card.mjs isPlayablePrinting judges it: not gold-bordered, not memorabilia.
 const PLAYABLE = "(p.border_color IS NOT 'gold' AND p.set_type IS NOT 'memorabilia')";
 
-// The cheapest printing per card in one currency, as upgrades.mjs pricedPrintings and cheapestPrice
-// choose: among playable printings when the card has any, else among all, priced above zero.
-const cheapestIn = (currency) => `SELECT id FROM (
-    SELECT id, ROW_NUMBER() OVER (PARTITION BY oracle_id ORDER BY ${currency}, id) AS n FROM priced
-    WHERE (playable OR NOT any_playable) AND ${currency} > 0
-  ) WHERE n = 1`;
+// The cheapest printing per card at each price (a priced column), as upgrades.mjs pricedPrintings and
+// bestQuote choose: among playable printings when the card has any, else among all, priced above zero,
+// and at Card Kingdom, copies in stock before those out of stock. One SELECT with a window per price,
+// since D1 allows only a few terms in a compound SELECT.
+const ELIGIBLE = '(playable OR NOT any_playable)';
+const rankBy = (column, first = '') =>
+  `ROW_NUMBER() OVER (PARTITION BY oracle_id ORDER BY ${ELIGIBLE} AND ${column} > 0 DESC, ${first}${column}, id)`;
+const CHEAPEST = `SELECT id FROM (
+    SELECT id, ${ELIGIBLE} AS eligible, ck_usd, usd, eur,
+           ${rankBy('ck_usd', 'ck_in_stock DESC, ')} AS ck_n, ${rankBy('usd')} AS usd_n, ${rankBy('eur')} AS eur_n
+    FROM priced
+  ) WHERE eligible AND ((ck_n = 1 AND ck_usd > 0) OR (usd_n = 1 AND usd > 0) OR (eur_n = 1 AND eur > 0))`;
 
 // Cards in scope (SQL selecting oracle IDs), each with only the printings src/core reads: Scryfall's
-// default, the cheapest in USD and in EUR, and any further printings unions select (SQL selecting
-// printing IDs, which may use the scope CTE). Parameters are bound in the order the SQL uses them: the
-// scope's, then the unions'.
+// default, the cheapest at Card Kingdom, on TCGplayer (USD) and in EUR, and any further printings
+// unions select (SQL selecting printing IDs, which may use the scope CTE). Parameters are bound in the
+// order the SQL uses them: the scope's, then the unions'.
 async function keyPrintingRows(db, { scope, scopeParams = [], unions = [], unionParams = [] }) {
   const printingsSql = `
     WITH scope AS (${scope}),
     priced AS (
-      SELECT p.id, p.oracle_id, pr.usd, pr.eur, ${PLAYABLE} AS playable,
+      SELECT p.id, p.oracle_id, pr.usd, pr.eur, pr.ck_usd, pr.ck_in_stock, ${PLAYABLE} AS playable,
              MAX(${PLAYABLE}) OVER (PARTITION BY p.oracle_id) AS any_playable
       FROM printings p JOIN scope s ON s.oracle_id = p.oracle_id LEFT JOIN prices pr ON pr.printing_id = p.id
     ),
     wanted AS (
       SELECT p.id FROM printings p JOIN scope s ON s.oracle_id = p.oracle_id WHERE p.is_default = 1
-      UNION ${cheapestIn('usd')}
-      UNION ${cheapestIn('eur')}
+      UNION ${CHEAPEST}
       ${unions.map((union) => `UNION ${union}`).join('\n      ')}
     )
     SELECT ${PRINTING_COLUMNS} FROM printings p LEFT JOIN prices pr ON pr.printing_id = p.id
@@ -265,8 +273,8 @@ async function keyPrintingRows(db, { scope, scopeParams = [], unions = [], union
 }
 
 // Every card a person has any copy of, protected collections included, with only the printings
-// src/core reads: the ones they own, Scryfall's default, the cheapest in USD and in EUR, and, for a
-// search by set or rarity, the ones in those sets and rarities. That's a few thousand printings
+// src/core reads: the ones they own, Scryfall's default, the cheapest at Card Kingdom, in USD and in
+// EUR, and, for a search by set or rarity, the ones in those sets and rarities. That's a few thousand printings
 // instead of every printing of every owned card (about 17,000 for one collection), with the same
 // prices, defaults and printing choices.
 export function loadOwnedRows(db, userId, { sets = [], rarities = [] } = {}) {

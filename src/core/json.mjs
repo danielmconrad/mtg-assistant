@@ -99,7 +99,7 @@ export const upgradesJson = ({ currency, purchases, problems, unresolvedRows, to
   currency,
   budget: fromCents(budgetCents),
   total: fromCents(totalCents),
-  purchases: purchases.map(({ card, quantity, unitCents, printing, problem }) =>
+  purchases: purchases.map(({ card, quantity, unitCents, printing, problem, source, inStock }) =>
     problem
       ? { name: card.name, quantity, problem }
       : {
@@ -109,6 +109,7 @@ export const upgradesJson = ({ currency, purchases, problems, unresolvedRows, to
           price: fromCents(quantity * unitCents),
           set: printing.set,
           collector_number: printing.collectorNumber,
+          ...(source ? { source, in_stock: inStock } : {}),
         },
   ),
   problems,
@@ -155,6 +156,13 @@ export const cardReportJson = (report) =>
         ...cardJson(report.card),
         commander_legality: report.card.legalities.commander ?? null,
         price_usd: report.priceUsd,
+        prices_usd: (report.quotes ?? []).map(({ source, unitCents, printing, inStock }) => ({
+          source,
+          price: unitCents / 100,
+          set: printing.set,
+          collector_number: printing.collectorNumber,
+          in_stock: inStock,
+        })),
         edhrec_rank: report.edhrecRank,
         printings_cached: report.printings,
         available: report.available,

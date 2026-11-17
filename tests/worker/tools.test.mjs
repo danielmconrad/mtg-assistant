@@ -90,6 +90,12 @@ describe('get_cards', () => {
     expect(text).toMatch(/Decks: .*bears/);
   });
 
+  it('shows Card Kingdom’s price first, with TCGplayer’s', async () => {
+    const { text } = await callTool(owner, 'get_cards', { names: ['Sol Ring', 'Reanimate', 'Llanowar Elves'] });
+    expect(text).toContain('  Prices: Card Kingdom $2.29 (C21 #263, in stock); TCGplayer $1.50 (C21 #263)');
+    expect(text).toMatch(/Prices: Card Kingdom \$4\.99 \(\w+ #\w+, out of stock\)/);
+  });
+
   it('counts rulings, and lists them when asked', async () => {
     let { text } = await callTool(owner, 'get_cards', { names: ['Sol Ring', 'Llanowar Elves'] });
     expect(text).toContain('  Rulings: 2 (get_cards with rulings: true lists them)');

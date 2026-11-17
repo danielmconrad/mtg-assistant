@@ -48,7 +48,10 @@ export const TABLES = {
       'hash',
     ],
   },
-  prices: { key: 'printing_id', columns: ['printing_id', 'usd', 'usd_foil', 'usd_etched', 'eur', 'hash'] },
+  prices: {
+    key: 'printing_id',
+    columns: ['printing_id', 'usd', 'usd_foil', 'usd_etched', 'eur', 'ck_usd', 'ck_in_stock', 'hash'],
+  },
   commander_pool: {
     key: 'oracle_id',
     columns: ['oracle_id', 'identity', 'themes', 'tribes', 'is_land', 'can_command', 'hash'],
