@@ -92,7 +92,7 @@ description = "Recompile schemas/deck.schema.json into src/core/deck-validator.g
 run = "node scripts/generate-deck-validator.mjs"
 
 [tasks."ingest:local"]
-description = "Load every Scryfall card into the local dev database (network: about 112 MB from Scryfall)"
+description = "Load every Scryfall card into the local dev database (network: about 180 MB from Scryfall and Card Kingdom)"
 run = ["wrangler d1 migrations apply mtg-assistant --local", "node scripts/ingest-scryfall.mjs --local"]
 
 [tasks."infra:bootstrap"]

@@ -111,6 +111,8 @@ const priceRow = (printing) => ({
   usd_foil: price(printing.prices.usdFoil),
   usd_etched: price(printing.prices.usdEtched),
   eur: price(printing.prices.eur),
+  ck_usd: price(printing.prices.ckUsd),
+  ck_in_stock: typeof printing.prices.ckInStock === 'boolean' ? Number(printing.prices.ckInStock) : null,
 });
 
 // Byte order, as D1 sorts text, so output is stable.

@@ -3,7 +3,7 @@
 import { ageInDays } from './card.mjs';
 import { ownedCounts, protectedHoldings } from './collection.mjs';
 import { roleLabels } from './deck.mjs';
-import { cheapestPrice } from './upgrades.mjs';
+import { cheapestPrice, quotesBySource } from './upgrades.mjs';
 
 // Every place a deck names a card: as a commander, in the mainboard (with its roles), in an upgrade's
 // add or cut, or in considered (with its reason).
@@ -32,6 +32,7 @@ export function cardReports(names, { index, collections, decks }) {
       name,
       card,
       priceUsd: cheapestPrice(index, card),
+      quotes: quotesBySource(index, card),
       edhrecRank: card.edhrecRank ?? null,
       printings: index.printingsOf(card.oracleId).length,
       available: owned.counts.get(card.oracleId) ?? 0,

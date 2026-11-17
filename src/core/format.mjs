@@ -136,10 +136,21 @@ export function statsLines(deck, stats, { upgradesApplied = false } = {}) {
   ];
 }
 
-function purchaseLine({ card, quantity, unitCents, printing, problem }, currency) {
+const printingLabel = (printing) => `${printing.set.toUpperCase()} #${printing.collectorNumber}`;
+
+// Where a quote is from, and a cheaper one elsewhere: "Card Kingdom, out of stock; TCGplayer 0.25 USD".
+function quoteNote({ source, inStock, elsewhere }, currency) {
+  const stock = inStock === false ? ', out of stock' : '';
+  const cheaper = elsewhere
+    ? `; ${elsewhere.source} ${money(elsewhere.unitCents, currency)} (${printingLabel(elsewhere.printing)})`
+    : '';
+  return source ? `, ${source}${stock}${cheaper}` : '';
+}
+
+function purchaseLine(purchase, currency) {
+  const { card, quantity, unitCents, printing, problem } = purchase;
   if (problem) return `${card.name}: buy ${quantity}, price unknown (${problem})`;
-  const printingLabel = `${printing.set.toUpperCase()} #${printing.collectorNumber}`;
-  return `${card.name}: buy ${quantity} × ${money(unitCents, currency)} (${printingLabel}) = ${money(quantity * unitCents, currency)}`;
+  return `${card.name}: buy ${quantity} × ${money(unitCents, currency)} (${printingLabel(printing)}${quoteNote(purchase, currency)}) = ${money(quantity * unitCents, currency)}`;
 }
 
 export function upgradeLines({ currency, purchases, problems, unresolvedRows, totalCents, budgetCents, outcome }) {
@@ -147,7 +158,9 @@ export function upgradeLines({ currency, purchases, problems, unresolvedRows, to
     ? [`${unresolvedRows} available collection rows have no cached card data; purchase quantities may be overstated`]
     : [];
   return [
-    `Cards the available collections cannot supply, priced at the cheapest cached Scryfall nonfoil ${currency} quote under ${PRICE_MAX_AGE_DAYS} days old. Excludes shipping and tax.`,
+    currency === 'USD'
+      ? `Cards the available collections cannot supply, priced at Card Kingdom's cheapest nonfoil near-mint copy (in stock first) under ${PRICE_MAX_AGE_DAYS} days old, or TCGplayer's market price where Card Kingdom has none; a cheaper TCGplayer price follows the store's. Excludes shipping and tax.`
+      : `Cards the available collections cannot supply, priced at the cheapest cached Scryfall nonfoil ${currency} quote under ${PRICE_MAX_AGE_DAYS} days old. Excludes shipping and tax.`,
     ...[...problems, ...unresolvedNote, ...purchases.map((purchase) => purchaseLine(purchase, currency))].map(indent),
     `${BUDGET_LABELS[outcome]}: ${money(totalCents, currency)} of ${money(budgetCents, currency)} budget`,
   ];
@@ -186,6 +199,12 @@ const useNote = ({ deck, as, roles, reason }) => {
   return `${deck} (${as})`;
 };
 
+// One store's best price for a card: "Card Kingdom $14.99 (FDN #123, in stock)".
+const sourceQuote = ({ source, unitCents, printing, inStock }) => {
+  const stock = inStock === null ? '' : `, ${inStock ? 'in stock' : 'out of stock'}`;
+  return `${source} $${(unitCents / 100).toFixed(2)} (${printingLabel(printing)}${stock})`;
+};
+
 // card:show: each card's text, legality and value, the copies held and where decks use it.
 export function cardReportLines(reports) {
   return reports.flatMap((report) => {
@@ -197,6 +216,7 @@ export function cardReportLines(reports) {
       `${card.name} ${card.manaCost} — ${card.typeLine} [${identityLabel(card)}]${gameChangerNote(card)}`,
       ...oracleLines(card),
       indent(`Commander: ${commander}; ${valueNote(report)}; ${printings} printings cached`),
+      ...(report.quotes?.length ? [indent(`Prices: ${report.quotes.map(sourceQuote).join('; ')}`)] : []),
       indent(`Copies: ${available} available${copies}`),
       indent(`Decks: ${uses.length ? uses.map(useNote).join('; ') : 'none'}`),
     ];

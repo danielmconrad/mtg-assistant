@@ -149,10 +149,16 @@ export const callTool = async (session, name, args = {}) => {
   return { text: body.result.content.map((part) => part.text).join('\n'), isError: Boolean(body.result.isError) };
 };
 
+// Card Kingdom's prices for the fixture: Sol Ring in stock, Reanimate out of stock.
+export const CARD_KINGDOM = new Map([
+  [ID.solRing, { price: 2.29, inStock: true }],
+  [ID.reanimate, { price: 4.99, inStock: false }],
+]);
+
 // Loads the fixture cards; call it in beforeAll.
 export async function loadFixtureCards() {
   await clearCardTables();
-  await ingest(CARDS, [], RULINGS);
+  await ingest(CARDS, [], RULINGS, CARD_KINGDOM);
 }
 
 // Signs both people in and gives the owner their collections and deck; call it in beforeEach, since

@@ -217,7 +217,7 @@ variables. `infra/routes.json` lists the paths the WAF lets through and the ones
 ```sh
 cp .env.worker.example .env.worker   # local Worker secrets; see the comments inside
 mise run db:migrate:local
-mise run ingest:local              # every Scryfall card into the local database (about 112 MB download)
+mise run ingest:local              # every Scryfall card into the local database (about 180 MB download)
 mise run dev                      # http://localhost:8787
 mise run inspector                # MCP Inspector, to call the tools
 ```
@@ -292,13 +292,16 @@ Every card on Scryfall lives in D1:
 - **`printings`:** set, collector number, rarity and whether it's the default printing, with one row per printing.
 - **`commander_pool`:** for each Commander-legal card, what it adds to commander ranking: its themes and creature
   types.
-- **`prices`:** USD, foil, etched and EUR prices.
+- **`prices`:** Scryfall's USD (TCGplayer market), foil, etched and EUR prices, and Card Kingdom's nonfoil
+  near-mint price and whether it's in stock. USD prices come from Card Kingdom first, since one store's prices are
+  what a whole order costs, and from TCGplayer only for cards Card Kingdom doesn't sell; `deck_upgrades` and
+  `get_cards` name the store and show a cheaper TCGplayer price beside it.
 - **`cards_fts`:** a full-text index over names, type lines and rules text.
 - **`rulings`:** each card's rulings (Wizards' release notes and Scryfall's notes), as one row per card.
 
 `.github/workflows/scryfall.yml` runs `scripts/ingest-scryfall.mjs --remote` every day at 11:17 UTC, after
 Scryfall rebuilds its bulk files, and can also be started by hand from the Actions tab. It uses a token that can
-only edit D1. Each run streams the same two bulk files mtg-manager used, and Scryfall's Rulings file, compares every row's hash with what's
+only edit D1. Each run streams the same two bulk files mtg-manager used, Scryfall's Rulings file and Card Kingdom's public price list, compares every row's hash with what's
 already in D1, and writes only what changed. A run with no changes writes one metadata row. It stops rather than
 delete more than 2% of a table, since that would point to a bad download.
 
