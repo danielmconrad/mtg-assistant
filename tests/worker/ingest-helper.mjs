@@ -6,8 +6,9 @@ import { buildRows, diffRows } from '../../scripts/ingest/rows.mjs';
 import { TABLES, ingestStatements } from '../../scripts/ingest/sql.mjs';
 import { toCard } from '../../src/core/scryfall.mjs';
 
-export const BUILT = '2026-11-12T10:06:21.099Z';
-// Loaded just now, so tools never warn that the card data is stale, whatever day the tests run.
+// Built a day ago and loaded just now, so prices never pass PRICE_MAX_AGE_DAYS and tools never warn
+// that the card data is stale, whatever day the tests run.
+export const BUILT = new Date(Date.now() - 86_400_000).toISOString();
 export const INGESTED = new Date().toISOString();
 
 async function currentHashes() {
