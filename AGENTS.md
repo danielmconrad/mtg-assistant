@@ -14,8 +14,8 @@ outrank convenience.
   `scripts/setup-secrets.mjs` instead.
 - Run `auth:lockdown` whenever the user asks, without debate. Run `auth:unlock` only when they ask, after saying why
   the lockdown happened, if that's known.
-- Production card data is loaded only by the Scryfall ingest workflow. Locally, use `mise run ingest:local`;
-  don't run `ingest-scryfall.mjs --remote` from a laptop.
+- Production card data is loaded only by the Card data ingest workflow. Locally, use `mise run ingest:local`;
+  don't run `ingest-card-data.mjs --remote` from a laptop.
 - Don't deploy from a laptop. Production deploys come from CI on `main`. Don't run `wrangler deploy`,
   `wrangler secret put` or `wrangler d1 ... --remote` unless the user asks for that specific command.
 - Don't commit, push or open pull requests without the user's permission.

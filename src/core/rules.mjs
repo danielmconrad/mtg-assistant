@@ -1,4 +1,4 @@
-import { ageInDays, hasCommanderText, isBackground, isBasic, isLegendaryCreature } from './card.mjs';
+import { ageInDays, isBackground, isBasic, isCommanderEligible } from './card.mjs';
 import { availableCopies, holdingsNote, ownedCounts, protectedHoldings } from './collection.mjs';
 import { ROLE_VOCABULARY, applyUpgrades, deckEntries, resolveEntries, roleLabels } from './deck.mjs';
 import { FORMATS, isCommanderFormat } from './formats.mjs';
@@ -76,7 +76,7 @@ function isRecognizedPairing(first, second) {
 // A Background is only eligible as the second half of a pair.
 function isEligibleCommander(card, commanderCount) {
   const isPairedBackground = commanderCount === 2 && isBackground(card);
-  return isLegendaryCreature(card) || isPairedBackground || hasCommanderText(card);
+  return isCommanderEligible(card) || isPairedBackground;
 }
 
 function commanderFindings(commanders) {

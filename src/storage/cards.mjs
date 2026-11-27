@@ -24,7 +24,7 @@ const priceText = (value) => (value === null || value === undefined ? null : Num
 // Cards and their printings are fetched separately and joined here: a joined query would repeat each
 // card's rules text once per printing, several times the data for a collection's worth of cards.
 const CARD_COLUMNS = `c.oracle_id, c.name, c.front_name, c.mana_cost, c.mana_value, c.type_line, c.front_type,
-  c.oracle_text, c.keywords, c.color_identity, c.produced_mana, c.legalities, c.game_changer, c.edhrec_rank`;
+  c.oracle_text, c.power, c.toughness, c.keywords, c.color_identity, c.produced_mana, c.legalities, c.game_changer, c.edhrec_rank`;
 const PRINTING_COLUMNS = `p.id, p.oracle_id, p.name AS printing_name, p.set_code, p.collector_number, p.rarity,
   p.border_color, p.set_type, p.flavor_name, p.is_default, p.overrides, p.printing_legalities,
   pr.usd, pr.usd_foil, pr.usd_etched, pr.eur, pr.ck_usd, pr.ck_in_stock`;
@@ -66,6 +66,8 @@ function cardFields(row, { formats }) {
     typeLine: row.type_line,
     frontType: row.front_type,
     oracleText: row.oracle_text,
+    power: row.power,
+    toughness: row.toughness,
     keywords: JSON.parse(row.keywords),
     colorIdentity: identityLetters(row.color_identity),
     producedMana: JSON.parse(row.produced_mana),
@@ -95,6 +97,8 @@ export function toCardModel(row, context, shared = cardFields(row, context)) {
     frontType: shared.frontType,
     flavorName: row.flavor_name,
     oracleText: shared.oracleText,
+    power: shared.power,
+    toughness: shared.toughness,
     keywords: shared.keywords,
     colorIdentity: shared.colorIdentity,
     producedMana: shared.producedMana,
