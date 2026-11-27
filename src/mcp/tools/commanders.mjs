@@ -120,7 +120,7 @@ async function ranked(args, { db, user }) {
 async function rankCommandersTool(args, context) {
   const { ranking, filters, meta, pool, edhrec } = await ranked(args, context);
   const warnings = [staleDataWarning(meta, context.now)].filter(Boolean);
-  if (!pool.cards.length) warnings.push('The commander pool is empty until the nightly Scryfall ingest runs');
+  if (!pool.cards.length) warnings.push('The commander pool is empty until the nightly card data ingest runs');
   if (args.sort === 'edhrec' && !Object.keys(edhrec).length) {
     warnings.push('No EDHREC pages are cached yet, so edhrec sorting falls back to lift; refresh_edhrec fetches them');
   }

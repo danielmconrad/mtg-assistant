@@ -93,7 +93,7 @@ run = "node scripts/generate-deck-validator.mjs"
 
 [tasks."ingest:local"]
 description = "Load every Scryfall card into the local dev database (network: about 180 MB from Scryfall and Card Kingdom)"
-run = ["wrangler d1 migrations apply mtg-assistant --local", "node scripts/ingest-scryfall.mjs --local"]
+run = ["wrangler d1 migrations apply mtg-assistant --local", "node scripts/ingest-card-data.mjs --local"]
 
 [tasks."infra:bootstrap"]
 description = "Create the private R2 bucket OpenTofu keeps its encrypted state in (once, before the first infra:plan)"

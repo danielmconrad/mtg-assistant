@@ -1,7 +1,7 @@
 // Loads every card on Scryfall into D1, writing only what changed since the last run.
 //
-//   node scripts/ingest-scryfall.mjs --local            # the local dev database (mise run ingest:local)
-//   node scripts/ingest-scryfall.mjs --remote           # production; the nightly GitHub Action runs this
+//   node scripts/ingest-card-data.mjs --local            # the local dev database (mise run ingest:local)
+//   node scripts/ingest-card-data.mjs --remote           # production; the nightly GitHub Action runs this
 //   ... --dry-run                                       # download, diff and write SQL, but apply nothing
 //   ... --allow-mass-delete                             # see MAX_DELETE_SHARE
 //

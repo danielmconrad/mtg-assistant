@@ -1,4 +1,4 @@
-// Runs an ingest into the test D1 the way scripts/ingest-scryfall.mjs does: diff against the hashes
+// Runs an ingest into the test D1 the way scripts/ingest-card-data.mjs does: diff against the hashes
 // already there, then apply the statements in order.
 import { env } from 'cloudflare:test';
 import { withCardKingdom } from '../../scripts/ingest/cardkingdom.mjs';

@@ -299,7 +299,7 @@ Every card on Scryfall lives in D1:
 - **`cards_fts`:** a full-text index over names, type lines and rules text.
 - **`rulings`:** each card's rulings (Wizards' release notes and Scryfall's notes), as one row per card.
 
-`.github/workflows/scryfall.yml` runs `scripts/ingest-scryfall.mjs --remote` every day at 11:17 UTC, after
+`.github/workflows/card-data.yml` (Card data ingest) runs `scripts/ingest-card-data.mjs --remote` every day at 11:17 UTC, after
 Scryfall rebuilds its bulk files, and can also be started by hand from the Actions tab. It uses a token that can
 only edit D1. Each run streams the same two bulk files mtg-manager used, Scryfall's Rulings file and Card Kingdom's public price list, compares every row's hash with what's
 already in D1, and writes only what changed. A run with no changes writes one metadata row. It stops rather than

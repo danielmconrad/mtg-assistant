@@ -1,6 +1,7 @@
-# Loads Scryfall's card data into production D1 every day, after Scryfall rebuilds its bulk files
-# (around 10:00 UTC), writing only rows that changed. Run it by hand from the Actions tab too.
-name: Scryfall ingest
+# Loads production D1's card data every day: Scryfall's cards and rulings once Scryfall rebuilds its bulk
+# files (around 10:00 UTC), Card Kingdom's prices, and the commander pool built from them, writing only
+# rows that changed. Run it by hand from the Actions tab too.
+name: Card data ingest
 
 on:
   schedule:
@@ -11,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: scryfall-ingest
+  group: card-data-ingest
   cancel-in-progress: false
 
 jobs:
@@ -31,4 +32,4 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
       - run: npm ci --ignore-scripts
-      - run: node scripts/ingest-scryfall.mjs --remote
+      - run: node scripts/ingest-card-data.mjs --remote
