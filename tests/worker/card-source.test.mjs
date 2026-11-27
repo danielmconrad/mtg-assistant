@@ -21,6 +21,8 @@ const leader = scryfallCard('Ayula, Queen Among Bears', {
   cmc: 2,
   color_identity: ['G'],
   oracle_text: 'Whenever another Bear you control enters, choose one —',
+  power: '2',
+  toughness: '2',
   edhrec_rank: 2500,
 });
 const delver = scryfallCard('Delver of Secrets // Insectile Aberration', {
