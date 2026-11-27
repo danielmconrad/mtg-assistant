@@ -19,6 +19,8 @@ export const TABLES = {
       'type_line',
       'front_type',
       'oracle_text',
+      'power',
+      'toughness',
       'keywords',
       'color_identity',
       'produced_mana',

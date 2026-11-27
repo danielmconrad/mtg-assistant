@@ -65,6 +65,8 @@ function cardRow(card) {
     type_line: card.typeLine,
     front_type: card.frontType,
     oracle_text: card.oracleText,
+    power: card.power,
+    toughness: card.toughness,
     keywords: JSON.stringify(card.keywords),
     color_identity: identityMask(card.colorIdentity),
     produced_mana: JSON.stringify(card.producedMana),

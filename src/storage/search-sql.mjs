@@ -133,11 +133,11 @@ function addCardConditions(list, args, mask) {
   if (args.game_changers) list.add('c.game_changer = 1');
   // GLOB is case-sensitive like String.includes, so this matches isLand exactly.
   if (args.nonland) list.add("c.front_type NOT GLOB '*Land*'");
-  // canBeCommander: a legendary creature, a Background, or "can be your commander"; LIKE ignores case,
-  // so this is a superset.
+  // canBeCommander: a legendary creature, a legendary Vehicle or Spacecraft (src/core checks its
+  // power/toughness), a Background, or "can be your commander"; LIKE ignores case, so this is a superset.
   if (args.commanders_only) {
     list.add(
-      "(c.front_type LIKE '%Background%' OR (c.front_type LIKE '%Legendary%' AND c.front_type LIKE '%Creature%') OR c.oracle_text LIKE '%can be your commander%')",
+      "(c.front_type LIKE '%Background%' OR (c.front_type LIKE '%Legendary%' AND (c.front_type LIKE '%Creature%' OR c.front_type LIKE '%Vehicle%' OR c.front_type LIKE '%Spacecraft%')) OR c.oracle_text LIKE '%can be your commander%')",
     );
   }
 }

@@ -23,6 +23,9 @@ export function toCard(scryfallCard, fetchedAt, { defaultPrinting = false } = {}
     frontType: front.type_line ?? '',
     flavorName: scryfallCard.flavor_name ?? front.flavor_name ?? null,
     oracleText: scryfallCard.oracle_text ?? faces.map((face) => face.oracle_text ?? '').join('\n'),
+    // The front face's printed power and toughness, as Scryfall writes them ("6", "*", "1+*"); null without a box.
+    power: front.power ?? scryfallCard.power ?? null,
+    toughness: front.toughness ?? scryfallCard.toughness ?? null,
     keywords: scryfallCard.keywords ?? [],
     colorIdentity: scryfallCard.color_identity ?? [],
     producedMana: scryfallCard.produced_mana ?? [],

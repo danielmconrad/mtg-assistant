@@ -69,6 +69,15 @@ const CARDS = [
     color_identity: ['U'],
     oracle_text: 'Teferi, Temporal Archmage can be your commander.',
   }),
+  scryfallCard('Parhelion II', {
+    type_line: 'Legendary Artifact — Vehicle',
+    cmc: 8,
+    color_identity: ['W'],
+    power: '5',
+    toughness: '5',
+  }),
+  scryfallCard('The Eternity Elevator', { type_line: 'Legendary Artifact — Spacecraft', cmc: 5 }),
+  scryfallCard("Smuggler's Copter", { type_line: 'Artifact — Vehicle', cmc: 2, power: '3', toughness: '3' }),
   scryfallCard('Sol Ring', {
     type_line: 'Artifact',
     cmc: 1,
