@@ -49,7 +49,9 @@ export async function personalIndex(db, userId, { names = [], extraRows = [], se
 
 // A note when the card data is older than the nightly ingest should leave it.
 export function staleDataWarning(meta, now) {
-  if (!meta.ingestedAt) return 'No card data has been loaded yet; the nightly Scryfall ingest loads it';
+  if (!meta.ingestedAt) return 'No card data has been loaded yet; the nightly card data ingest loads it';
   const days = (now - Date.parse(meta.ingestedAt)) / 86_400_000;
-  return days > 3 ? `Card data was last loaded ${Math.floor(days)} days ago; check the Scryfall ingest workflow` : null;
+  return days > 3
+    ? `Card data was last loaded ${Math.floor(days)} days ago; check the Card data ingest workflow`
+    : null;
 }

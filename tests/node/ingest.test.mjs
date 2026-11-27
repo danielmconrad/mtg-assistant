@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkDeletes, textLines } from '../../scripts/ingest-scryfall.mjs';
+import { checkDeletes, textLines } from '../../scripts/ingest-card-data.mjs';
 import { buildRows, diffRows, identityMask } from '../../scripts/ingest/rows.mjs';
 import {
   MAX_STATEMENT_BYTES,
