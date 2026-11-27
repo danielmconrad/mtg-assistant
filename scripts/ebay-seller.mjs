@@ -4,8 +4,9 @@
 //
 //   mise run ebay:seller -- <seller> [--out file.csv] [--game 'Pokémon TCG'] [--no-details]
 //
-// A store with more than the 10,000 listings one search returns is read in price ranges, each split
-// in half until it holds fewer. --no-details skips the per-listing lookups for item specifics (card
+// eBay drops and repeats listings when paging deep into a big search, so a store is read in price
+// ranges, each halved until it fits on one page or is down to one price. A range that still comes up
+// short of eBay's count is read again. --no-details skips the per-listing lookups for item specifics (card
 // name, set, finish, condition), leaving only titles and prices: one request per 200 listings instead
 // of one per 20. A keyset eBay hasn't approved for those lookups gets titles and prices too.
 import { writeFileSync } from 'node:fs';
@@ -21,6 +22,8 @@ export const MAGIC = 'Magic: The Gathering';
 const PAGE_SIZE = 200;
 // Browse search stops at 10,000 results however they're paged.
 const SEARCH_CAP = 10_000;
+// Reads of a range that comes up short of eBay's count before settling for what was found.
+const MAX_PASSES = 3;
 const DETAILS_BATCH = 20;
 // Usernames are letters, digits and . _ - *; anything else could break out of the filter expression.
 const SELLER = /^[\w.*-]{1,64}$/;
@@ -109,19 +112,36 @@ const rangeLabel = (range) => {
 // A range (or the whole store, null) can be halved unless it's down to one price.
 const splittable = (range) => !range || range.high === undefined || range.high > range.low;
 
-// Adds a search's listings to `listings`, from its first page on, up to the 10,000 eBay returns.
-async function readPages(search, range, first, listings) {
+// Adds a search's listings to `listings`, from its first page on, up to the 10,000 eBay returns, and
+// to `seen`, the IDs this range has turned up.
+async function readPages(search, range, first, listings, seen) {
   let page = first;
   for (let offset = PAGE_SIZE; ; offset += PAGE_SIZE) {
-    for (const summary of page.itemSummaries ?? []) listings.set(summary.itemId, summary);
+    for (const summary of page.itemSummaries ?? []) {
+      listings.set(summary.itemId, summary);
+      seen.add(summary.itemId);
+    }
     if (!page.next || !page.itemSummaries?.length || offset >= SEARCH_CAP) return;
     page = await search(range, offset);
   }
 }
 
-// Every single the seller has for sale for one game, as search summaries: all of them if they fit in
-// one search, else price ranges halved until each does. A range down to one price that still doesn't
-// fit keeps its first 10,000.
+// Reads a range until it has as many listings as eBay counted, up to MAX_PASSES reads.
+async function readRange(search, range, first, listings, log) {
+  const expected = Math.min(first.total ?? 0, SEARCH_CAP);
+  const seen = new Set();
+  for (let pass = 1; ; pass++) {
+    await readPages(search, range, pass === 1 ? first : await search(range, 0), listings, seen);
+    if (seen.size >= expected) return;
+    if (pass === MAX_PASSES) {
+      log(`${rangeLabel(range)}: found ${seen.size} of ${expected} listings after ${pass} reads`);
+      return;
+    }
+  }
+}
+
+// Every single the seller has for sale for one game, as search summaries, read in price ranges halved
+// until each fits on one page. A range down to one price is paged through, keeping its first 10,000.
 export async function sellerListings(get, seller, game, log = () => {}) {
   if (!SELLER.test(seller)) throw new EbayError(`${seller} doesn't look like an eBay username`);
   if (!GAME.test(game)) throw new EbayError(`${game} doesn't look like a game's name`);
@@ -139,21 +159,23 @@ export async function sellerListings(get, seller, game, log = () => {}) {
     );
   const listings = new Map();
   const pending = [null];
+  let storeTotal;
   while (pending.length) {
     const range = pending.shift();
     const first = await search(range, 0);
     const total = first.total ?? 0;
-    if (total > SEARCH_CAP && splittable(range)) {
-      log(`${rangeLabel(range)}: ${total} listings, more than one search returns; splitting by price`);
+    storeTotal ??= total;
+    if (total > PAGE_SIZE && splittable(range)) {
       pending.unshift(...splitRange(range ?? { low: 0 }));
       continue;
     }
     if (total > SEARCH_CAP) {
       log(`${rangeLabel(range)}: ${total} listings at one price; keeping the first ${SEARCH_CAP}`);
     }
-    await readPages(search, range, first, listings);
-    log(`${rangeLabel(range)}: ${total} listings (${listings.size} found so far)`);
+    await readRange(search, range, first, listings, log);
+    if (total > PAGE_SIZE) log(`${rangeLabel(range)}: ${total} listings (${listings.size} found so far)`);
   }
+  log(`Found ${listings.size} of the ${storeTotal} listings eBay counted`);
   return [...listings.values()];
 }
 

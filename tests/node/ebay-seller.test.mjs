@@ -38,9 +38,12 @@ function inPriceRange(filter, cents) {
   return cents >= low && cents <= high;
 }
 
-// A fake eBay with `count` listings, listing n priced priceOf(n) cents; records each request.
-function fakeEbay(count, { priceOf = () => 150, refuseDetails = false } = {}) {
+// A fake eBay with `count` listings, listing n priced priceOf(n) cents; records each request. With
+// `drift`, the first deep page of each search skips that many listings, as eBay's sometimes do; with
+// `overcount`, it counts that many listings it never returns.
+function fakeEbay(count, { priceOf = () => 150, refuseDetails = false, drift = 0, overcount = 0 } = {}) {
   const requests = [];
+  const drifted = new Set();
   const all = Array.from({ length: count }, (_, i) => summary(i + 1, priceOf(i + 1)));
   const fetchImpl = async (input, init = {}) => {
     const url = new URL(input);
@@ -51,9 +54,12 @@ function fakeEbay(count, { priceOf = () => 150, refuseDetails = false } = {}) {
       const limit = Number(url.searchParams.get('limit'));
       const filter = url.searchParams.get('filter');
       const matching = all.filter((listing) => inPriceRange(filter, Math.round(Number(listing.price.value) * 100)));
-      const itemSummaries = matching.slice(offset, offset + limit);
+      const skip = offset > 0 && drift && !drifted.has(filter) ? drift : 0;
+      if (skip) drifted.add(filter);
+      const itemSummaries = matching.slice(offset + skip, offset + skip + limit);
       const more = offset + limit < Math.min(matching.length, 10_000);
-      return Response.json({ total: matching.length, itemSummaries, ...(more ? { next: 'more' } : {}) });
+      const total = matching.length + overcount;
+      return Response.json({ total, itemSummaries, ...(more ? { next: 'more' } : {}) });
     }
     if (url.pathname === '/buy/browse/v1/item/' && refuseDetails) {
       return new Response('{"errors":[{"longMessage":"Insufficient permissions to fulfill the request."}]}', {
@@ -70,13 +76,24 @@ function fakeEbay(count, { priceOf = () => 150, refuseDetails = false } = {}) {
 }
 
 describe('ebay-seller', () => {
-  it('pages through a seller’s singles, reads item specifics 20 at a time, and writes CSV', async () => {
+  it('reads a seller’s singles, paging only at one price, then item specifics 20 at a time, as CSV', async () => {
     const { fetchImpl, requests } = fakeEbay(205);
     const csv = await sellerCsv('card_shop-1', { env: ENV, fetchImpl });
     const searches = requests.filter((request) => request.path.endsWith('/item_summary/search'));
-    expect(searches.map((request) => request.params)).toEqual([
-      { ...MAGIC_SINGLES, filter: 'sellers:{card_shop-1}', limit: '200', offset: '0' },
-      { ...MAGIC_SINGLES, filter: 'sellers:{card_shop-1}', limit: '200', offset: '200' },
+    expect(searches[0].params).toEqual({
+      ...MAGIC_SINGLES,
+      filter: 'sellers:{card_shop-1}',
+      limit: '200',
+      offset: '0',
+    });
+    // All 205 cost $1.50, so ranges are halved down to that one price, which is paged through.
+    expect(searches.filter((request) => request.params.offset !== '0').map((request) => request.params)).toEqual([
+      {
+        ...MAGIC_SINGLES,
+        filter: 'sellers:{card_shop-1},price:[1.50..1.50],priceCurrency:USD',
+        limit: '200',
+        offset: '200',
+      },
     ]);
     expect(requests.filter((request) => request.path === '/buy/browse/v1/item/')).toHaveLength(11);
     expect(requests[0].init.headers.Authorization).toBe(`Basic ${btoa('fake-id:fake-secret')}`);
@@ -94,22 +111,36 @@ describe('ebay-seller', () => {
     expect(lines[2]).toBe('Listing 2,,,,,Ungraded,,1.50,USD,Listing 2,https://www.ebay.com/itm/2,2');
   });
 
-  it('reads a store too big for one search in price ranges, halved until each fits', async () => {
-    // 10,050 listings at 1¢ to $100.50: the whole store is over the cap, $0.00–$1.00 and $1.01 and up aren't.
+  it('reads a big store in price ranges halved until each fits on one page', async () => {
+    // 10,050 listings at 1¢ to $100.50, more than one search returns.
     const { fetchImpl, requests } = fakeEbay(10_050, { priceOf: (n) => n });
-    const lines = (await sellerCsv('shop', { env: ENV, fetchImpl, details: false })).trimEnd().split('\n');
+    const logged = [];
+    const csv = await sellerCsv('shop', { env: ENV, fetchImpl, details: false, log: (line) => logged.push(line) });
+    const lines = csv.trimEnd().split('\n');
     expect(lines).toHaveLength(10_051);
     expect(new Set(lines).size).toBe(10_051);
-    const filters = new Set(
-      requests.filter((request) => request.path.endsWith('/search')).map((request) => request.params.filter),
-    );
-    expect(filters).toEqual(
-      new Set([
-        'sellers:{shop}',
-        'sellers:{shop},price:[0.00..1.00],priceCurrency:USD',
-        'sellers:{shop},price:[1.01..],priceCurrency:USD',
-      ]),
-    );
+    const searches = requests.filter((request) => request.path.endsWith('/search'));
+    expect(searches.every((request) => request.params.offset === '0')).toBe(true);
+    expect(logged.at(-1)).toBe('Found 10050 of the 10050 listings eBay counted');
+  });
+
+  it('reads a range again when paging through it skips listings', async () => {
+    const { fetchImpl, requests } = fakeEbay(450, { drift: 7 });
+    const csv = await sellerCsv('shop', { env: ENV, fetchImpl, details: false });
+    expect(new Set(csv.trimEnd().split('\n').slice(1)).size).toBe(450);
+    const onePrice = requests.filter((request) => request.params.filter?.includes('price:[1.50..1.50]'));
+    expect(onePrice.map((request) => request.params.offset)).toEqual(['0', '200', '400', '0', '200', '400']);
+  });
+
+  it('says how many listings it couldn’t find after three reads', async () => {
+    const { fetchImpl } = fakeEbay(3, { overcount: 1 });
+    const logged = [];
+    const csv = await sellerCsv('shop', { env: ENV, fetchImpl, details: false, log: (line) => logged.push(line) });
+    expect(csv.trimEnd().split('\n')).toHaveLength(4);
+    expect(logged).toEqual([
+      'the store: found 3 of 4 listings after 3 reads',
+      'Found 3 of the 4 listings eBay counted',
+    ]);
   });
 
   it('keeps the first 10,000 of a range that can’t be split any further', async () => {
